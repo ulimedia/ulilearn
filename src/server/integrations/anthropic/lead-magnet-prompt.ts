@@ -1,17 +1,19 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, estimateCostCents } from "./client";
 import { leadAnalysisSchema, type LeadAnalysis } from "./schema";
 import { env } from "@/lib/env";
+import type { ScrapedInstagramProfile } from "@/server/integrations/apify/client";
 
-export const SYSTEM_PROMPT = `Sei il critico-curatore di Ulilearn, una piattaforma italiana di
+export const SYSTEM_PROMPT_BLIND = `Sei il critico-curatore di Ulilearn, una piattaforma italiana di
 contenuti su arte, cinema e fotografia — editoriale, colta ma mai
 accademica, rigorosa ma accessibile. Parli a chi ha uno sguardo, non a
 chi ha un diploma.
 
-Il tuo compito: dato l'handle Instagram di una persona (e, se disponibile,
-una bio), restituire un'ANALISI del suo possibile sguardo estetico e una
-SELEZIONE di autori — contemporanei e storici — che potrebbero risuonare
-con lei. Non vedi le sue foto: sii onesto su questo limite, trasformandolo
-in un gesto curatoriale. Lavori per suggestioni, non per induzione.
+Il tuo compito: dato l'handle Instagram di una persona, restituire
+un'ANALISI del suo possibile sguardo estetico e una SELEZIONE di autori —
+contemporanei e storici — che potrebbero risuonare con lei. Non vedi le
+sue foto: sii onesto su questo limite, trasformandolo in un gesto
+curatoriale. Lavori per suggestioni, non per induzione.
 
 Tono: seconda persona singolare, calda ma non confidenziale. Frasi medie.
 Mai elenchi puntati nel corpo dell'analisi. Mai gergo accademico. Mai
@@ -28,8 +30,43 @@ Vincoli ferrei:
 - Non parlare di abbonamento, prezzi, Ulilearn Plus. Quello è lavoro del banner.
 - Mai inventare numeri di follower, premi, mostre.
 - Se l'handle è vuoto, numerico puro, o chiaramente non-fotografico,
-  produci un'analisi onesta nel campo "caveat" che apre domande invece di
-  forzare una lettura. Suggerisci comunque autori (sarà una curatela ampia).
+  produci un'analisi onesta nel campo "caveat".
+
+Output: chiama l'unico tool disponibile, "emit_analysis", passando un
+oggetto JSON valido. Niente testo libero.`;
+
+export const SYSTEM_PROMPT_VISION = `Sei il critico-curatore di Ulilearn, una piattaforma italiana di
+contenuti su arte, cinema e fotografia — editoriale, colta ma mai
+accademica, rigorosa ma accessibile. Parli a chi ha uno sguardo, non a
+chi ha un diploma.
+
+Ti vengono mostrate le ULTIME FOTO pubblicate da una persona su Instagram,
+insieme a bio e caption. Il tuo compito: analizzare davvero quelle immagini —
+palette, composizione, luce, temi ricorrenti, registro emotivo — e costruire
+un'ANALISI del suo sguardo + una SELEZIONE di autori (contemporanei e storici)
+che potrebbero risuonare con lei.
+
+Non sei un algoritmo. Sei un curatore che guarda. Cita dettagli SPECIFICI che
+vedi nelle foto (una luce, un'inquadratura, una ripetizione, una palette) per
+sostenere le tue osservazioni. Senza questi dettagli, il testo diventa generico
+e l'utente perde fiducia.
+
+Tono: seconda persona singolare, calda ma non confidenziale. Frasi medie.
+Mai elenchi puntati nel corpo dell'analisi. Mai gergo accademico. Mai
+superlativi pubblicitari ("incredibile", "fantastico"). Ulilearn non grida.
+
+Vincoli ferrei:
+- Usa SOLO autori realmente esistenti e verificabili (Sergio Larrain, Luigi
+  Ghirri, Sally Mann, Todd Hido, Rinko Kawauchi, Alec Soth, Guido Guidi,
+  Nan Goldin, Stephen Shore, Saul Leiter, Vivian Maier, Henri Cartier-Bresson,
+  Graciela Iturbide, Bernd & Hilla Becher, Raghubir Singh, Masahisa Fukase,
+  Gabriele Basilico, Mario Giacomelli, ecc.). Mai inventare persone.
+- Per ogni autore, motiva il matching con 1-2 frasi SPECIFICHE che colleghino
+  l'autore a qualcosa che hai visto nelle foto. Evita "ti piacerà perché è bravo".
+- Non parlare di abbonamento, prezzi, Ulilearn Plus. Quello è lavoro del banner.
+- Mai inventare numeri di follower, premi, mostre.
+- Se le foto sono poche, selfie/lifestyle, screenshot o non fotografiche, nel
+  campo "caveat" dichiara il limite e lavora comunque per suggestione.
 
 Output: chiama l'unico tool disponibile, "emit_analysis", passando un
 oggetto JSON valido. Niente testo libero.`;
@@ -98,7 +135,7 @@ const TOOL_DEFINITION = {
       caveat: {
         type: "string",
         description:
-          "Opzionale: nota onesta se l'handle fornito è ambiguo o poco leggibile.",
+          "Opzionale: nota onesta se il materiale visto è povero o ambiguo.",
       },
     },
     required: ["schemaVersion", "headline", "intro", "contemporary", "historical", "closing"],
@@ -109,6 +146,8 @@ export type AnalyzeInput = {
   email: string;
   instagramUrl: string;
   instagramHandle: string | null;
+  /** Populated if scraping succeeded; null when private/blind fallback. */
+  scraped?: ScrapedInstagramProfile | null;
 };
 
 export type AnalyzeResult = {
@@ -117,6 +156,8 @@ export type AnalyzeResult = {
   tokensIn: number;
   tokensOut: number;
   costCents: number;
+  /** True if the call used image content blocks (Claude Vision). */
+  usedVision: boolean;
 };
 
 export class LeadAnalysisError extends Error {
@@ -130,8 +171,14 @@ export class LeadAnalysisError extends Error {
 export async function analyzeInstagramProfile(
   input: AnalyzeInput,
 ): Promise<AnalyzeResult> {
-  const userMessage = buildUserMessage(input);
   const model = env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+  const useVision =
+    !!input.scraped && input.scraped.latestPosts.length > 0;
+
+  const systemPrompt = useVision ? SYSTEM_PROMPT_VISION : SYSTEM_PROMPT_BLIND;
+  const userContent = useVision
+    ? buildVisionUserContent(input.scraped!, input.instagramUrl)
+    : [{ type: "text" as const, text: buildBlindUserMessage(input) }];
 
   let response;
   try {
@@ -139,10 +186,10 @@ export async function analyzeInstagramProfile(
       model,
       max_tokens: 2500,
       temperature: 0.85,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       tools: [TOOL_DEFINITION],
       tool_choice: { type: "tool", name: TOOL_DEFINITION.name },
-      messages: [{ role: "user", content: userMessage }],
+      messages: [{ role: "user", content: userContent }],
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -171,10 +218,11 @@ export async function analyzeInstagramProfile(
     tokensIn,
     tokensOut,
     costCents: estimateCostCents(tokensIn, tokensOut),
+    usedVision: useVision,
   };
 }
 
-function buildUserMessage(input: AnalyzeInput): string {
+function buildBlindUserMessage(input: AnalyzeInput): string {
   const handle = input.instagramHandle ?? "(non estratto)";
   return [
     `Ecco i dati inviati dall'utente:`,
@@ -185,6 +233,54 @@ function buildUserMessage(input: AnalyzeInput): string {
     `Produci l'analisi rispettando i vincoli del system prompt.`,
     `Ricorda: non vedi le foto, lavori per suggestione.`,
   ].join("\n");
+}
+
+function buildVisionUserContent(
+  scraped: ScrapedInstagramProfile,
+  instagramUrl: string,
+): Anthropic.MessageParam["content"] {
+  const intro: string[] = [
+    `Profilo Instagram da analizzare:`,
+    ``,
+    `- Handle: @${scraped.handle}`,
+    `- URL: ${instagramUrl}`,
+  ];
+  if (scraped.fullName) intro.push(`- Nome: ${scraped.fullName}`);
+  if (scraped.biography) intro.push(`- Bio: ${scraped.biography.replace(/\n/g, " ")}`);
+  if (scraped.postsCount) intro.push(`- Post totali: ${scraped.postsCount}`);
+  if (scraped.followersCount) intro.push(`- Follower: ${scraped.followersCount}`);
+  intro.push(``);
+  intro.push(
+    `Qui sotto ti mostro le ultime ${scraped.latestPosts.length} foto pubblicate.`,
+  );
+  intro.push(
+    `Osservale davvero (luce, palette, composizione, ricorrenze) e costruisci l'analisi.`,
+  );
+
+  const blocks: Anthropic.MessageParam["content"] = [
+    { type: "text", text: intro.join("\n") },
+  ];
+
+  scraped.latestPosts.forEach((post, i) => {
+    blocks.push({
+      type: "image",
+      source: { type: "url", url: post.imageUrl },
+    });
+    if (post.caption) {
+      const cap = post.caption.slice(0, 600).replace(/\n+/g, " ");
+      blocks.push({
+        type: "text",
+        text: `Caption foto ${i + 1}: ${cap}`,
+      });
+    }
+  });
+
+  blocks.push({
+    type: "text",
+    text: "Ora produci l'analisi rispettando i vincoli del system prompt.",
+  });
+
+  return blocks;
 }
 
 /**

@@ -40,6 +40,9 @@ const serverSchema = z.object({
     .string()
     .url()
     .default("https://ulilearn.academy/catalogo/abbonamento/ulilearn-plus/"),
+  APIFY_TOKEN: z.string().min(1).optional(),
+  APIFY_IG_ACTOR: z.string().default("apify~instagram-profile-scraper"),
+  APIFY_IG_MAX_IMAGES: z.coerce.number().int().min(1).max(12).default(6),
 });
 
 const clientSchema = z.object({

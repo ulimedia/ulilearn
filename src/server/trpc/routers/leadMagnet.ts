@@ -7,6 +7,11 @@ import {
   extractInstagramHandle,
   LeadAnalysisError,
 } from "@/server/integrations/anthropic/lead-magnet-prompt";
+import {
+  scrapeInstagramProfile,
+  ApifyScrapeError,
+  type ScrapedInstagramProfile,
+} from "@/server/integrations/apify/client";
 import { verifyTurnstile } from "@/server/integrations/turnstile/verify";
 import {
   addBudgetSpend,
@@ -135,13 +140,29 @@ export const leadMagnetRouter = createTRPCRouter({
         });
       }
 
-      // 5. Call Claude (1 retry on invalid JSON)
+      // 5a. Scrape Instagram (best-effort: falls back to blind analysis on failure)
+      let scraped: ScrapedInstagramProfile | null = null;
+      if (handle) {
+        try {
+          scraped = await scrapeInstagramProfile(handle);
+        } catch (e) {
+          if (e instanceof ApifyScrapeError) {
+            console.warn(`[leadMagnet] scrape fallback (${e.code}): ${e.message}`);
+          } else {
+            console.warn("[leadMagnet] scrape unknown error", e);
+          }
+          scraped = null;
+        }
+      }
+
+      // 5b. Call Claude (1 retry on invalid JSON)
       let result;
       try {
         result = await analyzeInstagramProfile({
           email: input.email,
           instagramUrl: input.instagramUrl,
           instagramHandle: handle,
+          scraped,
         });
       } catch (e) {
         if (e instanceof LeadAnalysisError && e.code === "invalid_output") {
@@ -151,6 +172,7 @@ export const leadMagnetRouter = createTRPCRouter({
               email: input.email,
               instagramUrl: input.instagramUrl,
               instagramHandle: handle,
+              scraped,
             });
           } catch (e2) {
             console.error("[leadMagnet] Claude retry failed", e2);

@@ -490,6 +490,27 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_auth_user();
 
 -- ----------------------------------------------------------------------------
+-- Helper: trigger to cascade deletes auth.users → public.users
+-- ----------------------------------------------------------------------------
+
+create or replace function public.handle_auth_user_deleted()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.users where id = old.id;
+  return old;
+end;
+$$;
+
+drop trigger if exists on_auth_user_deleted on auth.users;
+create trigger on_auth_user_deleted
+  after delete on auth.users
+  for each row execute function public.handle_auth_user_deleted();
+
+-- ----------------------------------------------------------------------------
 -- Helper: is_admin() based on JWT claim
 -- ----------------------------------------------------------------------------
 

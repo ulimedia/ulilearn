@@ -1,9 +1,10 @@
 -- ============================================================================
 -- Ulilearn — complete setup bundle
--- Run this once in Supabase SQL Editor to initialize everything:
---   1. Tables (from Prisma schema)
---   2. RLS policies
+-- Run once in Supabase SQL Editor to initialize everything:
+--   1. Tables (from Prisma schema, includes leads)
+--   2. RLS policies + triggers
 --   3. Storage buckets
+--   4. Leads RLS + auth conversion trigger
 -- ============================================================================
 
 -- ==== 1. TABLES ====
@@ -47,6 +48,9 @@ CREATE TYPE "content_status" AS ENUM ('draft', 'scheduled', 'published', 'archiv
 -- CreateEnum
 CREATE TYPE "email_status" AS ENUM ('sent', 'delivered', 'bounced', 'opened', 'clicked', 'failed');
 
+-- CreateEnum
+CREATE TYPE "lead_status" AS ENUM ('new', 'analyzed', 'emailed', 'converted', 'bounced');
+
 -- CreateTable
 CREATE TABLE "users" (
     "id" UUID NOT NULL,
@@ -63,6 +67,7 @@ CREATE TABLE "users" (
     "signup_campaign" TEXT,
     "deleted_at" TIMESTAMPTZ,
     "last_login_at" TIMESTAMPTZ,
+    "origin_lead_id" UUID,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ NOT NULL,
 
@@ -294,6 +299,38 @@ CREATE TABLE "audit_log" (
     CONSTRAINT "audit_log_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "leads" (
+    "id" UUID NOT NULL,
+    "email" TEXT NOT NULL,
+    "instagram_url" TEXT NOT NULL,
+    "instagram_handle" TEXT,
+    "source" TEXT NOT NULL DEFAULT 'lead_magnet_ig',
+    "status" "lead_status" NOT NULL DEFAULT 'new',
+    "marketing_consent" BOOLEAN NOT NULL DEFAULT true,
+    "analysis_json" JSONB,
+    "analysis_model" TEXT,
+    "analysis_tokens_in" INTEGER,
+    "analysis_tokens_out" INTEGER,
+    "analysis_cost_cents" INTEGER,
+    "analysis_error" TEXT,
+    "utm_source" TEXT,
+    "utm_medium" TEXT,
+    "utm_campaign" TEXT,
+    "referrer_url" TEXT,
+    "ip_hash" TEXT,
+    "user_agent" TEXT,
+    "turnstile_verified" BOOLEAN NOT NULL DEFAULT false,
+    "converted_user_id" UUID,
+    "converted_at" TIMESTAMPTZ,
+    "email_sent_at" TIMESTAMPTZ,
+    "email_message_id" TEXT,
+    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ NOT NULL,
+
+    CONSTRAINT "leads_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 
@@ -390,6 +427,15 @@ CREATE INDEX "audit_log_actor_user_id_created_at_idx" ON "audit_log"("actor_user
 -- CreateIndex
 CREATE INDEX "audit_log_entity_type_entity_id_idx" ON "audit_log"("entity_type", "entity_id");
 
+-- CreateIndex
+CREATE INDEX "leads_email_idx" ON "leads"("email");
+
+-- CreateIndex
+CREATE INDEX "leads_status_created_at_idx" ON "leads"("status", "created_at");
+
+-- CreateIndex
+CREATE INDEX "leads_created_at_idx" ON "leads"("created_at");
+
 -- AddForeignKey
 ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -443,6 +489,9 @@ ALTER TABLE "analytics_events" ADD CONSTRAINT "analytics_events_user_id_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "leads" ADD CONSTRAINT "leads_converted_user_id_fkey" FOREIGN KEY ("converted_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 
 -- ==== 2. RLS POLICIES ====
@@ -785,3 +834,82 @@ create policy "admin upload authors"
 create policy "admin update authors"
   on storage.objects for update
   using (bucket_id = 'authors' and public.is_admin());
+
+-- ==== 4. LEADS RLS + CONVERSION TRIGGER ====
+
+-- ============================================================================
+-- Ulilearn — Leads table RLS + conversion linking trigger
+-- Run after `prisma migrate` has created public.leads.
+-- ============================================================================
+
+alter table public.leads enable row level security;
+
+-- ----------------------------------------------------------------------------
+-- Policies
+-- ----------------------------------------------------------------------------
+-- anon and authenticated users cannot read/write leads directly.
+-- Inserts and updates happen server-side via service_role (webhook, tRPC).
+-- Admins can read all leads via the is_admin() claim.
+
+create policy "leads: admin full access"
+  on public.leads for all
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ----------------------------------------------------------------------------
+-- Extend handle_new_auth_user: when a new Supabase auth.users is created,
+-- link any pending lead rows with matching email to the new user.
+-- ----------------------------------------------------------------------------
+
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  matched_lead_id uuid;
+begin
+  -- 1) Mirror auth.users → public.users (original behavior)
+  insert into public.users (id, email, full_name, auth_provider, created_at, updated_at)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'full_name', null),
+    case when new.raw_app_meta_data->>'provider' = 'google' then 'google'::auth_provider else 'email'::auth_provider end,
+    now(),
+    now()
+  )
+  on conflict (id) do nothing;
+
+  -- 2) Attribute any pending lead (earliest unconverted one for this email)
+  select id into matched_lead_id
+  from public.leads
+  where email = new.email
+    and converted_user_id is null
+  order by created_at asc
+  limit 1;
+
+  if matched_lead_id is not null then
+    update public.leads
+      set converted_user_id = new.id,
+          converted_at      = now(),
+          status            = 'converted',
+          updated_at        = now()
+      where id = matched_lead_id;
+
+    update public.users
+      set origin_lead_id = matched_lead_id,
+          updated_at     = now()
+      where id = new.id;
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Trigger already exists from 0001; recreate to pick up the new function body
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_auth_user();

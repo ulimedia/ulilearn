@@ -52,12 +52,24 @@ export function LeadMagnetFlow() {
     <div>
       <LeadMagnetForm onSubmit={handleSubmit} />
       {state.kind === "error" && (
-        <p className="mt-4 text-sm text-red-400" role="alert">
-          {state.message}
-        </p>
+        <div className="mt-4 text-sm text-red-400" role="alert">
+          <p>{humanizeError(state.message)}</p>
+          {state.message.includes("[email_exists]") && (
+            <p className="mt-2">
+              <a href="/login" className="text-accent underline">
+                Accedi con la tua email
+              </a>
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
+}
+
+function humanizeError(raw: string): string {
+  // Strip internal [tag] prefix we use for debugging
+  return raw.replace(/^\[[a-z_]+\]\s*/, "");
 }
 
 function readUtm() {

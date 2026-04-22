@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
+import { TypeListingPage } from "@/components/catalog/TypeListingPage";
 
-export const metadata: Metadata = { title: "Corsi" };
+export const metadata: Metadata = {
+  title: "Corsi",
+  description:
+    "Percorsi strutturati in moduli e lezioni. Per chi vuole formarsi davvero in fotografia.",
+};
+
+export const revalidate = 600;
 
 export default function CorsiPage() {
-  return (
-    <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-      <h1 className="font-display text-display-lg">Corsi</h1>
-      <p className="mt-4 text-paper-300">Griglia e filtri da popolare nello Sprint 3.</p>
-    </section>
-  );
+  return <TypeListingPage type="corso" />;
 }

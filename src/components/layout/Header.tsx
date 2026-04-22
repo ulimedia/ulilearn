@@ -14,7 +14,7 @@ export async function Header() {
         <Link href={ROUTES.catalog} className="font-display text-xl tracking-wide">
           {APP_NAME}
         </Link>
-        <nav className="hidden items-center gap-6 text-sm md:flex">
+        <nav className="hidden items-center gap-5 text-sm lg:flex">
           <Link href={ROUTES.lecture} className="text-paper-300 hover:text-paper-50">
             Lecture
           </Link>
@@ -23,6 +23,12 @@ export async function Header() {
           </Link>
           <Link href={ROUTES.documentari} className="text-paper-300 hover:text-paper-50">
             Documentari
+          </Link>
+          <Link href={ROUTES.masterclass} className="text-paper-300 hover:text-paper-50">
+            Masterclass
+          </Link>
+          <Link href={ROUTES.workshop} className="text-paper-300 hover:text-paper-50">
+            Workshop
           </Link>
           <Link href={ROUTES.authors} className="text-paper-300 hover:text-paper-50">
             Autori

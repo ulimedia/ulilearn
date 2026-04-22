@@ -83,7 +83,7 @@ export function LeadMagnetForm({
           autoComplete="email"
         />
         <p className="text-xs text-paper-400">
-          Usiamo l&apos;email per inviarti l&apos;analisi. Niente spam.
+          La usiamo solo per ricontattarti sui nuovi contenuti Ulilearn. Niente spam.
         </p>
         {errors.email && <p className="text-sm text-red-400">{errors.email}</p>}
       </div>

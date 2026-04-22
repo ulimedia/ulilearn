@@ -56,8 +56,7 @@ export function AnalysisView({
       <CtaBanner ctaUrl={ctaUrl} emphasized />
 
       <p className="text-sm text-paper-400">
-        Ti abbiamo inviato una copia di questa analisi a{" "}
-        <span className="text-paper-50">{email}</span>. Controlla anche la cartella spam.
+        Salva questa pagina: il link è permanente e puoi condividerlo.
       </p>
     </article>
   );

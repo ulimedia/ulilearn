@@ -31,7 +31,7 @@ export function SignupForm({ next }: { next?: string }) {
       password,
       options: {
         data: { full_name: fullName },
-        emailRedirectTo: `${window.location.origin}/verify${next ? `?next=${encodeURIComponent(next)}` : ""}`,
+        emailRedirectTo: `${window.location.origin}/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}`,
       },
     });
     setLoading(false);

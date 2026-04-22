@@ -40,7 +40,9 @@ export function LoginForm({ next }: { next?: string }) {
     const supabase = createSupabaseBrowserClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}${next ?? ROUTES.account.home}` },
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}`,
+      },
     });
     setLoading(false);
     if (error) {

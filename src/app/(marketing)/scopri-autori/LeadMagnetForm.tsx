@@ -66,6 +66,9 @@ export function LeadMagnetForm({
           autoComplete="off"
           inputMode="url"
         />
+        <p className="text-xs text-paper-400">
+          Il profilo deve essere <span className="text-paper-300">pubblico</span>.
+        </p>
         {errors.instagramUrl && (
           <p className="text-sm text-red-400">{errors.instagramUrl}</p>
         )}

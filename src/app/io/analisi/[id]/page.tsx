@@ -29,6 +29,7 @@ export default async function AnalysisDetailPage({
       convertedUserId: true,
       email: true,
       analysisJson: true,
+      scrapedImages: true,
     },
   });
 
@@ -49,7 +50,11 @@ export default async function AnalysisDetailPage({
         ← Tutte le analisi
       </Link>
       <div className="mt-6">
-        <AnalysisView analysis={parsed.data} email={lead.email} />
+        <AnalysisView
+          analysis={parsed.data}
+          email={lead.email}
+          images={lead.scrapedImages}
+        />
       </div>
     </section>
   );

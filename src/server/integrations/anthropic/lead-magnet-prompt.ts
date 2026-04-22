@@ -177,7 +177,7 @@ export async function analyzeInstagramProfile(
 
   const systemPrompt = useVision ? SYSTEM_PROMPT_VISION : SYSTEM_PROMPT_BLIND;
   const userContent = useVision
-    ? buildVisionUserContent(input.scraped!, input.instagramUrl)
+    ? await buildVisionUserContent(input.scraped!, input.instagramUrl)
     : [{ type: "text" as const, text: buildBlindUserMessage(input) }];
 
   let response;
@@ -235,10 +235,10 @@ function buildBlindUserMessage(input: AnalyzeInput): string {
   ].join("\n");
 }
 
-function buildVisionUserContent(
+async function buildVisionUserContent(
   scraped: ScrapedInstagramProfile,
   instagramUrl: string,
-): Anthropic.MessageParam["content"] {
+): Promise<Anthropic.MessageParam["content"]> {
   const intro: string[] = [
     `Profilo Instagram da analizzare:`,
     ``,
@@ -251,7 +251,7 @@ function buildVisionUserContent(
   if (scraped.followersCount) intro.push(`- Follower: ${scraped.followersCount}`);
   intro.push(``);
   intro.push(
-    `Qui sotto ti mostro le ultime ${scraped.latestPosts.length} foto pubblicate.`,
+    `Qui sotto ti mostro le ultime foto pubblicate.`,
   );
   intro.push(
     `Osservale davvero (luce, palette, composizione, ricorrenze) e costruisci l'analisi.`,
@@ -261,26 +261,87 @@ function buildVisionUserContent(
     { type: "text", text: intro.join("\n") },
   ];
 
-  scraped.latestPosts.forEach((post, i) => {
+  // Fetch each image server-side and pass as base64. Anthropic rejects
+  // `source.type: "url"` for Instagram CDN URLs because of robots.txt.
+  // We parallelize the downloads and drop any image that fails.
+  const downloads = await Promise.all(
+    scraped.latestPosts.map(async (post) => {
+      try {
+        const img = await fetchImageAsBase64(post.imageUrl);
+        return { post, img };
+      } catch (e) {
+        console.warn(
+          `[leadMagnet] image fetch failed for ${post.imageUrl}: ${
+            e instanceof Error ? e.message : "unknown"
+          }`,
+        );
+        return null;
+      }
+    }),
+  );
+
+  let added = 0;
+  downloads.forEach((entry, i) => {
+    if (!entry) return;
     blocks.push({
       type: "image",
-      source: { type: "url", url: post.imageUrl },
+      source: {
+        type: "base64",
+        media_type: entry.img.mediaType,
+        data: entry.img.data,
+      },
     });
-    if (post.caption) {
-      const cap = post.caption.slice(0, 600).replace(/\n+/g, " ");
+    if (entry.post.caption) {
+      const cap = entry.post.caption.slice(0, 600).replace(/\n+/g, " ");
       blocks.push({
         type: "text",
         text: `Caption foto ${i + 1}: ${cap}`,
       });
     }
+    added += 1;
   });
 
   blocks.push({
     type: "text",
-    text: "Ora produci l'analisi rispettando i vincoli del system prompt.",
+    text:
+      added > 0
+        ? "Ora produci l'analisi rispettando i vincoli del system prompt."
+        : "Non sono riuscito a scaricare le foto. Produci l'analisi più onesta possibile, dichiarando il limite nel campo caveat.",
   });
 
   return blocks;
+}
+
+type FetchedImage = {
+  data: string;
+  mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+};
+
+async function fetchImageAsBase64(url: string): Promise<FetchedImage> {
+  const res = await fetch(url, {
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+      accept: "image/webp,image/jpeg,image/png,image/*,*/*;q=0.8",
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+  let mediaType: FetchedImage["mediaType"] = "image/jpeg";
+  if (contentType.includes("png")) mediaType = "image/png";
+  else if (contentType.includes("webp")) mediaType = "image/webp";
+  else if (contentType.includes("gif")) mediaType = "image/gif";
+  const buf = await res.arrayBuffer();
+  // Cap to ~4MB per image (Anthropic limit is 5MB per image, and base64
+  // expands by ~33%; keeping raw bytes under 3.5MB is a safe proxy).
+  if (buf.byteLength > 3_600_000) {
+    throw new Error(`image too large (${buf.byteLength} bytes)`);
+  }
+  const data = Buffer.from(buf).toString("base64");
+  return { data, mediaType };
 }
 
 /**

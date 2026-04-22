@@ -84,8 +84,28 @@ enum ContentType {
   lecture
   corso
   documentario
+  masterclass
+  workshop
 
   @@map("content_type")
+}
+
+enum ContentFormat {
+  on_demand
+  live_online
+  live_hybrid
+  live_in_person
+
+  @@map("content_format")
+}
+
+enum PurchaseStatus {
+  pending
+  paid
+  refunded
+  canceled
+
+  @@map("purchase_status")
 }
 
 enum ContentStatus {
@@ -158,6 +178,7 @@ model User {
   notes               UserNote[]
   events              AnalyticsEvent[]
   convertedFromLeads  Lead[]              @relation("LeadConversion")
+  contentPurchases    ContentPurchase[]
 
   @@index([email])
   @@index([kajabiLegacyId])
@@ -169,15 +190,16 @@ model User {
 // ============================================================================
 
 model Plan {
-  id               String           @id @default(uuid()) @db.Uuid
-  slug             String           @unique
-  name             String
-  priceCents       Int              @map("price_cents")
-  currency         String           @default("EUR") @db.Char(3)
-  billingInterval  BillingInterval  @map("billing_interval")
-  isActive         Boolean          @default(true) @map("is_active")
-  stripePriceId    String?          @map("stripe_price_id")
-  paypalPlanId     String?          @map("paypal_plan_id")
+  id                        String          @id @default(uuid()) @db.Uuid
+  slug                      String          @unique
+  name                      String
+  priceCents                Int             @map("price_cents")
+  currency                  String          @default("EUR") @db.Char(3)
+  billingInterval           BillingInterval @map("billing_interval")
+  isActive                  Boolean         @default(true) @map("is_active")
+  stripePriceId             String?         @map("stripe_price_id")
+  paypalPlanId              String?         @map("paypal_plan_id")
+  subscriberDiscountPercent Int             @default(20) @map("subscriber_discount_percent")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -253,7 +275,8 @@ model Coupon {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  payments Payment[]
+  payments         Payment[]
+  contentPurchases ContentPurchase[]
 
   @@index([code])
   @@map("coupons")
@@ -296,6 +319,7 @@ model ContentItem {
   id              String        @id @default(uuid()) @db.Uuid
   slug            String        @unique
   type            ContentType
+  format          ContentFormat @default(on_demand)
   title           String
   subtitle        String?
   descriptionMd   String?       @map("description_md")
@@ -304,23 +328,43 @@ model ContentItem {
   vimeoVideoId    String?       @map("vimeo_video_id")
   durationSeconds Int           @default(0) @map("duration_seconds")
   publishedAt     DateTime?     @map("published_at") @db.Timestamptz
+  scheduledPublishAt DateTime?  @map("scheduled_publish_at") @db.Timestamptz
   status          ContentStatus @default(draft)
   tags            String[]      @default([])
   isFeatured      Boolean       @default(false) @map("is_featured")
   isFree          Boolean       @default(false) @map("is_free")
 
+  // Live event fields (populated when format != on_demand)
+  liveStartAt             DateTime? @map("live_start_at") @db.Timestamptz
+  liveEndAt               DateTime? @map("live_end_at") @db.Timestamptz
+  registrationDeadlineAt  DateTime? @map("registration_deadline_at") @db.Timestamptz
+  timezone                String?   @default("Europe/Rome")
+  location                String?
+
+  // Pricing (when the item is sold standalone, typically masterclass/workshop)
+  isPurchasable                Boolean @default(false) @map("is_purchasable")
+  standalonePriceCents         Int?    @map("standalone_price_cents")
+  subscriberPriceCentsOverride Int?    @map("subscriber_price_cents_override")
+
+  // Seat management for live_in_person workshops
+  maxSeats   Int? @map("max_seats")
+  seatsTaken Int  @default(0) @map("seats_taken")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  author          Author?          @relation(fields: [authorId], references: [id])
+  author          Author?           @relation(fields: [authorId], references: [id])
   modules         CourseModule[]
   viewingProgress ViewingProgress[]
   savedBy         SavedItem[]
+  purchases       ContentPurchase[]
 
   @@index([slug])
   @@index([status, publishedAt])
   @@index([type, status])
   @@index([authorId])
+  @@index([type, liveStartAt])
+  @@index([isPurchasable, status])
   @@map("content_items")
 }
 
@@ -531,4 +575,36 @@ model Lead {
   @@index([status, createdAt])
   @@index([createdAt])
   @@map("leads")
+}
+
+// ============================================================================
+// Content purchases (masterclass, workshop — bought standalone)
+// ============================================================================
+
+model ContentPurchase {
+  id                     String          @id @default(uuid()) @db.Uuid
+  userId                 String          @map("user_id") @db.Uuid
+  contentItemId          String          @map("content_item_id") @db.Uuid
+  amountPaidCents        Int             @map("amount_paid_cents")
+  currency               String          @default("EUR") @db.Char(3)
+  provider               PaymentProvider
+  providerPaymentId      String          @map("provider_payment_id")
+  status                 PurchaseStatus  @default(pending)
+  appliedDiscountPercent Int?            @map("applied_discount_percent")
+  wasSubscriber          Boolean         @default(false) @map("was_subscriber")
+  couponId               String?         @map("coupon_id") @db.Uuid
+  seatConfirmed          Boolean         @default(false) @map("seat_confirmed")
+  accessExpiresAt        DateTime?       @map("access_expires_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentItem ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Restrict)
+  coupon      Coupon?     @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, contentItemId])
+  @@unique([provider, providerPaymentId])
+  @@index([contentItemId, status])
+  @@map("content_purchases")
 }

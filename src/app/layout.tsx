@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Oswald, Open_Sans } from "next/font/google";
 import { TRPCProvider } from "@/lib/trpc/provider";
 import { PlausibleScript } from "@/lib/analytics/plausible";
+import { ToastProvider } from "@/components/ui/toast";
 import { APP_NAME } from "@/lib/constants";
 import { env } from "@/lib/env";
 import "./globals.css";
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="it" className={`${oswald.variable} ${openSans.variable}`}>
       <body className="min-h-screen bg-ink-900 font-sans text-paper-50 antialiased">
         <TRPCProvider>{children}</TRPCProvider>
+        <ToastProvider />
         <PlausibleScript />
       </body>
     </html>

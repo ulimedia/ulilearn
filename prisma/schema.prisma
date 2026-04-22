@@ -1,0 +1,465 @@
+// Ulilearn data model
+// See PRD_Ulilearn_App.md §5 for full schema rationale.
+// Column names: snake_case (via @map). TypeScript names: camelCase.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgcrypto, pg_trgm]
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum UserRole {
+  user
+  admin
+  editor
+
+  @@map("user_role")
+}
+
+enum AuthProvider {
+  email
+  google
+
+  @@map("auth_provider")
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  canceled
+  expired
+
+  @@map("subscription_status")
+}
+
+enum BillingInterval {
+  year
+  month
+
+  @@map("billing_interval")
+}
+
+enum PaymentProvider {
+  stripe
+  paypal
+
+  @@map("payment_provider")
+}
+
+enum PaymentStatus {
+  succeeded
+  refunded
+  failed
+  pending
+
+  @@map("payment_status")
+}
+
+enum CouponType {
+  percentage
+  fixed
+
+  @@map("coupon_type")
+}
+
+enum CouponAppliesTo {
+  first_payment
+  all
+
+  @@map("coupon_applies_to")
+}
+
+enum ContentType {
+  lecture
+  corso
+  documentario
+
+  @@map("content_type")
+}
+
+enum ContentStatus {
+  draft
+  scheduled
+  published
+  archived
+
+  @@map("content_status")
+}
+
+enum EmailStatus {
+  sent
+  delivered
+  bounced
+  opened
+  clicked
+  failed
+
+  @@map("email_status")
+}
+
+// ============================================================================
+// Users & Auth
+// ============================================================================
+
+model User {
+  id                String       @id @default(uuid()) @db.Uuid
+  email             String       @unique
+  fullName          String?      @map("full_name")
+  avatarUrl         String?      @map("avatar_url")
+  authProvider      AuthProvider @default(email) @map("auth_provider")
+  role              UserRole     @default(user)
+  marketingConsent  Boolean      @default(false) @map("marketing_consent")
+  kajabiLegacyId    String?      @map("kajabi_legacy_id")
+  migratedFromKajabi Boolean     @default(false) @map("migrated_from_kajabi")
+
+  // UTM capture at signup
+  signupSource      String?      @map("signup_source")
+  signupMedium      String?      @map("signup_medium")
+  signupCampaign    String?      @map("signup_campaign")
+
+  // Soft delete
+  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz
+  lastLoginAt       DateTime?    @map("last_login_at") @db.Timestamptz
+
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  subscriptions    Subscription[]
+  payments         Payment[]
+  viewingProgress  ViewingProgress[]
+  savedItems       SavedItem[]
+  emailEvents      EmailEvent[]
+  auditActions     AuditLog[]          @relation("AuditActor")
+  tags             UserTag[]
+  notes            UserNote[]
+  events           AnalyticsEvent[]
+
+  @@index([email])
+  @@index([kajabiLegacyId])
+  @@map("users")
+}
+
+// ============================================================================
+// Billing
+// ============================================================================
+
+model Plan {
+  id               String           @id @default(uuid()) @db.Uuid
+  slug             String           @unique
+  name             String
+  priceCents       Int              @map("price_cents")
+  currency         String           @default("EUR") @db.Char(3)
+  billingInterval  BillingInterval  @map("billing_interval")
+  isActive         Boolean          @default(true) @map("is_active")
+  stripePriceId    String?          @map("stripe_price_id")
+  paypalPlanId     String?          @map("paypal_plan_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                     String             @id @default(uuid()) @db.Uuid
+  userId                 String             @map("user_id") @db.Uuid
+  planId                 String             @map("plan_id") @db.Uuid
+  status                 SubscriptionStatus
+  stripeSubscriptionId   String?            @unique @map("stripe_subscription_id")
+  stripeCustomerId       String?            @map("stripe_customer_id")
+  paypalSubscriptionId   String?            @unique @map("paypal_subscription_id")
+  startedAt              DateTime           @map("started_at") @db.Timestamptz
+  currentPeriodStart     DateTime           @map("current_period_start") @db.Timestamptz
+  currentPeriodEnd       DateTime           @map("current_period_end") @db.Timestamptz
+  cancelAtPeriodEnd      Boolean            @default(false) @map("cancel_at_period_end")
+  canceledAt             DateTime?          @map("canceled_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan     Plan      @relation(fields: [planId], references: [id])
+  payments Payment[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id                String          @id @default(uuid()) @db.Uuid
+  userId            String          @map("user_id") @db.Uuid
+  subscriptionId    String?         @map("subscription_id") @db.Uuid
+  provider          PaymentProvider
+  providerPaymentId String          @map("provider_payment_id")
+  amountCents       Int             @map("amount_cents")
+  currency          String          @default("EUR") @db.Char(3)
+  status            PaymentStatus
+  invoiceUrl        String?         @map("invoice_url")
+  couponId          String?         @map("coupon_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  coupon       Coupon?       @relation(fields: [couponId], references: [id])
+
+  @@unique([provider, providerPaymentId])
+  @@index([userId])
+  @@map("payments")
+}
+
+model Coupon {
+  id                 String           @id @default(uuid()) @db.Uuid
+  code               String           @unique
+  type               CouponType
+  value              Int
+  maxRedemptions     Int?             @map("max_redemptions")
+  redemptionsCount   Int              @default(0) @map("redemptions_count")
+  validFrom          DateTime         @map("valid_from") @db.Timestamptz
+  validUntil         DateTime?        @map("valid_until") @db.Timestamptz
+  applicablePlanIds  String[]         @map("applicable_plan_ids") @db.Uuid
+  appliesTo          CouponAppliesTo  @default(first_payment) @map("applies_to")
+  stripeCouponId     String?          @map("stripe_coupon_id")
+  stripePromotionId  String?          @map("stripe_promotion_id")
+  isActive           Boolean          @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  payments Payment[]
+
+  @@index([code])
+  @@map("coupons")
+}
+
+// ============================================================================
+// Webhooks idempotency
+// ============================================================================
+
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz
+
+  @@map("stripe_events")
+}
+
+// ============================================================================
+// Content
+// ============================================================================
+
+model Author {
+  id           String  @id @default(uuid()) @db.Uuid
+  slug         String  @unique
+  fullName     String  @map("full_name")
+  bioMd        String? @map("bio_md")
+  portraitUrl  String? @map("portrait_url")
+  websiteUrl   String? @map("website_url")
+  socialLinks  Json?   @map("social_links")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  contentItems ContentItem[]
+
+  @@map("authors")
+}
+
+model ContentItem {
+  id              String        @id @default(uuid()) @db.Uuid
+  slug            String        @unique
+  type            ContentType
+  title           String
+  subtitle        String?
+  descriptionMd   String?       @map("description_md")
+  coverImageUrl   String?       @map("cover_image_url")
+  authorId        String?       @map("author_id") @db.Uuid
+  vimeoVideoId    String?       @map("vimeo_video_id")
+  durationSeconds Int           @default(0) @map("duration_seconds")
+  publishedAt     DateTime?     @map("published_at") @db.Timestamptz
+  status          ContentStatus @default(draft)
+  tags            String[]      @default([])
+  isFeatured      Boolean       @default(false) @map("is_featured")
+  isFree          Boolean       @default(false) @map("is_free")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  author          Author?          @relation(fields: [authorId], references: [id])
+  modules         CourseModule[]
+  viewingProgress ViewingProgress[]
+  savedBy         SavedItem[]
+
+  @@index([slug])
+  @@index([status, publishedAt])
+  @@index([type, status])
+  @@index([authorId])
+  @@map("content_items")
+}
+
+model CourseModule {
+  id         String @id @default(uuid()) @db.Uuid
+  courseId   String @map("course_id") @db.Uuid
+  title      String
+  orderIndex Int    @map("order_index")
+
+  course  ContentItem    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons CourseLesson[]
+
+  @@index([courseId, orderIndex])
+  @@map("course_modules")
+}
+
+model CourseLesson {
+  id              String @id @default(uuid()) @db.Uuid
+  moduleId        String @map("module_id") @db.Uuid
+  title           String
+  vimeoVideoId    String @map("vimeo_video_id")
+  durationSeconds Int    @default(0) @map("duration_seconds")
+  orderIndex      Int    @map("order_index")
+  resources       Json?
+
+  module          CourseModule      @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  viewingProgress ViewingProgress[]
+
+  @@index([moduleId, orderIndex])
+  @@map("course_lessons")
+}
+
+// ============================================================================
+// User activity
+// ============================================================================
+
+model ViewingProgress {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  contentItemId   String?   @map("content_item_id") @db.Uuid
+  lessonId        String?   @map("lesson_id") @db.Uuid
+  secondsWatched  Int       @default(0) @map("seconds_watched")
+  completed       Boolean   @default(false)
+  lastWatchedAt   DateTime  @default(now()) @map("last_watched_at") @db.Timestamptz
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentItem ContentItem?  @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+  lesson      CourseLesson? @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentItemId])
+  @@unique([userId, lessonId])
+  @@index([userId, lastWatchedAt])
+  @@map("viewing_progress")
+}
+
+model SavedItem {
+  userId        String   @map("user_id") @db.Uuid
+  contentItemId String   @map("content_item_id") @db.Uuid
+  savedAt       DateTime @default(now()) @map("saved_at") @db.Timestamptz
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentItem ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  @@id([userId, contentItemId])
+  @@index([userId, savedAt])
+  @@map("saved_items")
+}
+
+// ============================================================================
+// CRM overlay
+// ============================================================================
+
+model UserTag {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tag       String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tag])
+  @@map("user_tags")
+}
+
+model UserNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  body      String
+  authorId  String?  @map("author_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("user_notes")
+}
+
+// ============================================================================
+// Email tracking
+// ============================================================================
+
+model EmailEvent {
+  id                String      @id @default(uuid()) @db.Uuid
+  userId            String?     @map("user_id") @db.Uuid
+  email             String
+  templateKey       String      @map("template_key")
+  providerMessageId String?     @map("provider_message_id")
+  status            EmailStatus
+  metadata          Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([email])
+  @@map("email_events")
+}
+
+// ============================================================================
+// Analytics (product events)
+// ============================================================================
+
+model AnalyticsEvent {
+  id         BigInt   @id @default(autoincrement())
+  userId     String?  @map("user_id") @db.Uuid
+  eventName  String   @map("event_name")
+  properties Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventName, createdAt])
+  @@index([userId, createdAt])
+  @@map("analytics_events")
+}
+
+// ============================================================================
+// Audit log
+// ============================================================================
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  entityType  String?  @map("entity_type")
+  entityId    String?  @map("entity_id")
+  diff        Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_log")
+}

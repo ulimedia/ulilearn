@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,17 @@ export function LoginForm({ next }: { next?: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Safety net: if Supabase redirected us here with a hash fragment of tokens
+  // (older magic link or misconfigured redirect), forward to the callback.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (hash && hash.includes("access_token=")) {
+      const target = `/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}${hash}`;
+      window.location.replace(target);
+    }
+  }, [next]);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent) {

@@ -1,22 +1,13 @@
 -- ============================================================================
--- Ulilearn — Block 1: Content CMS
+-- Ulilearn — Block 1 step 2/2: Content CMS schema
 --
--- Adds masterclass + workshop to content_type, introduces content_format and
--- purchase_status enums, extends content_items with live-event, pricing and
--- seats fields, creates content_purchases table with RLS, adds
--- subscriber_discount_percent on plans.
---
--- Run on an existing Supabase project where prior migrations have run.
+-- Run AFTER 0005_content_types.sql (new enum values must be committed first).
+-- Adds content_format + purchase_status enums, extends content_items with
+-- live-event/pricing/seats fields, creates content_purchases table with RLS,
+-- adds subscriber_discount_percent on plans.
 -- ============================================================================
 
--- 1. Extend content_type enum. ALTER TYPE ADD VALUE must be run outside of a
--- transaction when the same migration later uses the new values; since we
--- never reference 'masterclass' or 'workshop' as literals in this file, we
--- keep it inline.
-alter type "content_type" add value if not exists 'masterclass';
-alter type "content_type" add value if not exists 'workshop';
-
--- 2. New enums
+-- New enums
 do $$ begin
   create type "content_format" as enum ('on_demand', 'live_online', 'live_hybrid', 'live_in_person');
 exception when duplicate_object then null;
@@ -27,7 +18,7 @@ do $$ begin
 exception when duplicate_object then null;
 end $$;
 
--- 3. Extend content_items with new columns
+-- Extend content_items
 alter table "public"."content_items"
   add column if not exists "format" "content_format" not null default 'on_demand',
   add column if not exists "live_start_at" timestamptz,
@@ -42,7 +33,7 @@ alter table "public"."content_items"
   add column if not exists "seats_taken" integer not null default 0,
   add column if not exists "scheduled_publish_at" timestamptz;
 
--- 4. Indexes for new access patterns
+-- Indexes
 create index if not exists "content_items_type_live_start_at_idx"
   on "public"."content_items" ("type", "live_start_at");
 create index if not exists "content_items_is_purchasable_status_idx"
@@ -50,16 +41,16 @@ create index if not exists "content_items_is_purchasable_status_idx"
 create index if not exists "content_items_title_trgm_idx"
   on "public"."content_items" using gin ("title" gin_trgm_ops);
 
--- 5. Plan: subscriber discount percent
+-- Plan: subscriber discount percent
 alter table "public"."plans"
   add column if not exists "subscriber_discount_percent" integer not null default 20;
 
--- 6. Backfill: existing masterclass/workshop rows (if any) become purchasable
+-- Backfill: existing masterclass/workshop rows (if any) become purchasable
 update "public"."content_items"
   set "is_purchasable" = true
   where "type" in ('masterclass', 'workshop') and "is_purchasable" = false;
 
--- 7. Create content_purchases table
+-- content_purchases table
 create table if not exists "public"."content_purchases" (
   "id"                        uuid primary key default gen_random_uuid(),
   "user_id"                   uuid not null,
@@ -116,7 +107,7 @@ end $$;
 create index if not exists "content_purchases_content_item_status_idx"
   on "public"."content_purchases" ("content_item_id", "status");
 
--- 8. RLS on content_purchases
+-- RLS on content_purchases
 alter table "public"."content_purchases" enable row level security;
 
 drop policy if exists "content_purchases: owner read" on "public"."content_purchases";

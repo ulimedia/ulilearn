@@ -48,6 +48,8 @@ export const ROUTES = {
     coupons: "/admin/coupon",
     plans: "/admin/piani",
     email: "/admin/email",
+    leadMagnet: "/admin/lead-magnet",
     audit: "/admin/audit",
   },
+  scopriAutori: "/scopri-autori",
 } as const;

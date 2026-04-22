@@ -49,6 +49,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             Email
           </Link>
           <Link
+            href={ROUTES.admin.leadMagnet}
+            className="rounded-sm px-2 py-2 text-paper-300 hover:bg-paper-50/5"
+          >
+            Lead magnet
+          </Link>
+          <Link
             href={ROUTES.admin.audit}
             className="rounded-sm px-2 py-2 text-paper-300 hover:bg-paper-50/5"
           >

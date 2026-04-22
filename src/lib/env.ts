@@ -28,6 +28,18 @@ const serverSchema = z.object({
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
 
   SENTRY_DSN: z.string().url().optional(),
+
+  // Lead magnet (Instagram profile analysis)
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
+  ANTHROPIC_MAX_COST_CENTS_PER_WEEK: z.coerce.number().int().default(5000),
+  TURNSTILE_SECRET_KEY: z.string().min(1).optional(),
+  LEAD_MAGNET_RATE_LIMIT_PER_IP_HOUR: z.coerce.number().int().default(5),
+  LEAD_MAGNET_RATE_LIMIT_PER_EMAIL_DAY: z.coerce.number().int().default(3),
+  LEAD_MAGNET_KAJABI_CTA_URL: z
+    .string()
+    .url()
+    .default("https://ulilearn.academy/catalogo/abbonamento/ulilearn-plus/"),
 });
 
 const clientSchema = z.object({
@@ -38,6 +50,7 @@ const clientSchema = z.object({
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1),
   NEXT_PUBLIC_PLAUSIBLE_DOMAIN: z.string().min(1).optional(),
   NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional(),
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().min(1).optional(),
 });
 
 const clientValues = {
@@ -48,6 +61,7 @@ const clientValues = {
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
   NEXT_PUBLIC_PLAUSIBLE_DOMAIN: process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN,
   NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
 };
 
 const isServer = typeof window === "undefined";

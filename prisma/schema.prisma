@@ -108,6 +108,16 @@ enum EmailStatus {
   @@map("email_status")
 }
 
+enum LeadStatus {
+  new
+  analyzed
+  emailed
+  converted
+  bounced
+
+  @@map("lead_status")
+}
+
 // ============================================================================
 // Users & Auth
 // ============================================================================
@@ -132,18 +142,22 @@ model User {
   deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz
   lastLoginAt       DateTime?    @map("last_login_at") @db.Timestamptz
 
+  // Lead attribution: if user signed up after filling a lead form
+  originLeadId      String?      @map("origin_lead_id") @db.Uuid
+
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
-  subscriptions    Subscription[]
-  payments         Payment[]
-  viewingProgress  ViewingProgress[]
-  savedItems       SavedItem[]
-  emailEvents      EmailEvent[]
-  auditActions     AuditLog[]          @relation("AuditActor")
-  tags             UserTag[]
-  notes            UserNote[]
-  events           AnalyticsEvent[]
+  subscriptions       Subscription[]
+  payments            Payment[]
+  viewingProgress     ViewingProgress[]
+  savedItems          SavedItem[]
+  emailEvents         EmailEvent[]
+  auditActions        AuditLog[]          @relation("AuditActor")
+  tags                UserTag[]
+  notes               UserNote[]
+  events              AnalyticsEvent[]
+  convertedFromLeads  Lead[]              @relation("LeadConversion")
 
   @@index([email])
   @@index([kajabiLegacyId])
@@ -462,4 +476,55 @@ model AuditLog {
   @@index([actorUserId, createdAt])
   @@index([entityType, entityId])
   @@map("audit_log")
+}
+
+// ============================================================================
+// Leads (lead magnet: Instagram profile analysis)
+// ============================================================================
+
+model Lead {
+  id               String     @id @default(uuid()) @db.Uuid
+  email            String
+  instagramUrl     String     @map("instagram_url")
+  instagramHandle  String?    @map("instagram_handle")
+  source           String     @default("lead_magnet_ig")
+  status           LeadStatus @default(new)
+  marketingConsent Boolean    @default(true) @map("marketing_consent")
+
+  // LLM output
+  analysisJson       Json?   @map("analysis_json")
+  analysisModel      String? @map("analysis_model")
+  analysisTokensIn   Int?    @map("analysis_tokens_in")
+  analysisTokensOut  Int?    @map("analysis_tokens_out")
+  analysisCostCents  Int?    @map("analysis_cost_cents")
+  analysisError      String? @map("analysis_error")
+
+  // Attribution
+  utmSource    String? @map("utm_source")
+  utmMedium    String? @map("utm_medium")
+  utmCampaign  String? @map("utm_campaign")
+  referrerUrl  String? @map("referrer_url")
+
+  // Anti-abuse (GDPR-friendly: we store IP hash, not raw IP)
+  ipHash             String?  @map("ip_hash")
+  userAgent          String?  @map("user_agent")
+  turnstileVerified  Boolean  @default(false) @map("turnstile_verified")
+
+  // Conversion linking
+  convertedUserId String?   @map("converted_user_id") @db.Uuid
+  convertedAt     DateTime? @map("converted_at") @db.Timestamptz
+
+  // Email dispatch
+  emailSentAt    DateTime? @map("email_sent_at") @db.Timestamptz
+  emailMessageId String?   @map("email_message_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  convertedUser User? @relation("LeadConversion", fields: [convertedUserId], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@map("leads")
 }

@@ -9,7 +9,9 @@ export type AnalyticsEventName =
   | "content_completed"
   | "content_saved"
   | "subscription_canceled"
-  | "subscription_reactivated";
+  | "subscription_reactivated"
+  | "lead_magnet_submitted"
+  | "lead_magnet_converted";
 
 export async function trackEvent(params: {
   userId?: string | null;

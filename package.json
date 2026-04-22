@@ -19,6 +19,7 @@
     "email:dev": "email dev --dir src/emails"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@hookform/resolvers": "^3.9.0",
     "@paypal/react-paypal-js": "^8.7.0",
     "@prisma/client": "^5.22.0",

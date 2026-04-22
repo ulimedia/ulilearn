@@ -1,24 +1,24 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { LeadMagnetForm, type LeadMagnetFormValues } from "./LeadMagnetForm";
 import { LoadingNarrative } from "./loading-narrative";
-import { AnalysisView } from "./AnalysisView";
-import type { LeadAnalysis } from "@/server/integrations/anthropic/schema";
 
 type State =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "success"; analysis: LeadAnalysis; email: string }
   | { kind: "error"; message: string };
 
 export function LeadMagnetFlow() {
+  const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
 
   const mutation = trpc.leadMagnet.analyze.useMutation({
-    onSuccess: (data, variables) => {
-      setState({ kind: "success", analysis: data.analysis, email: variables.email });
+    onSuccess: (data) => {
+      // Redirect to the permanent result page (shareable, refresh-safe)
+      router.push(`/scopri-autori/risultato/${data.leadId}`);
     },
     onError: (err) => {
       setState({
@@ -42,11 +42,8 @@ export function LeadMagnetFlow() {
     });
   }
 
-  if (state.kind === "loading") {
+  if (state.kind === "loading" || mutation.isPending || mutation.isSuccess) {
     return <LoadingNarrative />;
-  }
-  if (state.kind === "success") {
-    return <AnalysisView analysis={state.analysis} email={state.email} />;
   }
   return (
     <div>

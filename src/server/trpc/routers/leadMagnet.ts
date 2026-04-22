@@ -153,6 +153,7 @@ export const leadMagnetRouter = createTRPCRouter({
               instagramHandle: handle,
             });
           } catch (e2) {
+            console.error("[leadMagnet] Claude retry failed", e2);
             await ctx.db.lead.update({
               where: { id: lead.id },
               data: {
@@ -161,19 +162,21 @@ export const leadMagnetRouter = createTRPCRouter({
             });
             throw new TRPCError({
               code: "INTERNAL_SERVER_ERROR",
-              message:
-                "Abbiamo salvato la tua richiesta. Ti invieremo l'analisi via email appena possibile.",
+              message: `[claude_retry_failed] ${
+                e2 instanceof Error ? e2.message.slice(0, 200) : "unknown"
+              }`,
             });
           }
         } else {
+          console.error("[leadMagnet] Claude call failed", e);
+          const errMsg = e instanceof Error ? e.message : "api error";
           await ctx.db.lead.update({
             where: { id: lead.id },
-            data: { analysisError: e instanceof Error ? e.message.slice(0, 500) : "api error" },
+            data: { analysisError: errMsg.slice(0, 500) },
           });
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message:
-              "Abbiamo salvato la tua richiesta. Ti invieremo l'analisi via email appena possibile.",
+            message: `[claude_error] ${errMsg.slice(0, 200)}`,
           });
         }
       }

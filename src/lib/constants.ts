@@ -4,13 +4,55 @@ export const CONTENT_TYPE_LABELS = {
   lecture: "Lecture",
   corso: "Corso",
   documentario: "Documentario",
+  masterclass: "Masterclass",
+  workshop: "Workshop",
 } as const;
 
 export const CONTENT_TYPE_PLURAL_LABELS = {
   lecture: "Lecture",
   corso: "Corsi",
   documentario: "Documentari",
+  masterclass: "Masterclass",
+  workshop: "Workshop",
 } as const;
+
+export const CONTENT_FORMAT_LABELS = {
+  on_demand: "On-demand",
+  live_online: "Live online",
+  live_hybrid: "Live ibrido",
+  live_in_person: "Live in presenza",
+} as const;
+
+export const CONTENT_STATUS_LABELS = {
+  draft: "Bozza",
+  scheduled: "Schedulato",
+  published: "Pubblicato",
+  archived: "Archiviato",
+} as const;
+
+export const PURCHASE_STATUS_LABELS = {
+  pending: "In sospeso",
+  paid: "Pagato",
+  refunded: "Rimborsato",
+  canceled: "Annullato",
+} as const;
+
+export const PURCHASABLE_TYPES = ["masterclass", "workshop"] as const;
+
+export const CONTENT_TYPES = [
+  "lecture",
+  "corso",
+  "documentario",
+  "masterclass",
+  "workshop",
+] as const;
+
+export const CONTENT_FORMATS = [
+  "on_demand",
+  "live_online",
+  "live_hybrid",
+  "live_in_person",
+] as const;
 
 export const SESSION_REFRESH_WINDOW_DAYS = 30;
 export const PROGRESS_SAVE_THROTTLE_MS = 10_000;
@@ -44,7 +86,12 @@ export const ROUTES = {
   admin: {
     home: "/admin",
     content: "/admin/contenuti",
+    contentNew: "/admin/contenuti/nuovo",
+    contentEdit: (id: string) => `/admin/contenuti/${id}`,
+    contentModules: (id: string) => `/admin/contenuti/${id}/moduli`,
     authors: "/admin/autori",
+    authorNew: "/admin/autori/nuovo",
+    authorEdit: (id: string) => `/admin/autori/${id}`,
     users: "/admin/utenti",
     coupons: "/admin/coupon",
     plans: "/admin/piani",

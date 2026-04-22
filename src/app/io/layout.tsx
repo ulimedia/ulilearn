@@ -12,6 +12,12 @@ export default async function AccountLayout({ children }: { children: React.Reac
       <div className="mx-auto flex w-full max-w-7xl flex-1 gap-8 px-4 py-10 sm:px-6 lg:px-8">
         <aside className="hidden w-48 shrink-0 md:block">
           <nav className="flex flex-col gap-1 text-sm">
+            <Link
+              href={ROUTES.account.analisi}
+              className="py-2 text-accent hover:text-accent/80"
+            >
+              Analizza
+            </Link>
             <Link href={ROUTES.account.home} className="py-2 text-paper-300 hover:text-paper-50">
               Home
             </Link>

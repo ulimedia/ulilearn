@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 
 const PHRASES = [
-  "Sto osservando il tuo handle…",
-  "Sto cercando autori che ti assomigliano…",
+  "Sto aprendo il tuo profilo…",
+  "Sto guardando le tue foto…",
+  "Sto osservando la luce, la palette, le ricorrenze…",
+  "Sto cercando autori che risuonano con il tuo sguardo…",
   "Sto scegliendo le parole giuste…",
   "Ci siamo quasi…",
 ];

@@ -46,23 +46,34 @@ function AuthCallbackInner() {
         return;
       }
 
-      // Case 2: Implicit flow — the Supabase client auto-detects the session
-      // from the URL hash at init. Wait one tick then check.
-      await new Promise((r) => setTimeout(r, 100));
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (cancelled) return;
+      // Case 2: Implicit flow — parse the hash ourselves. The @supabase/ssr
+      // browser client does NOT auto-detect sessions from the URL hash;
+      // we extract access_token + refresh_token and call setSession().
+      if (typeof window === "undefined") return;
+      const hash = window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : window.location.hash;
+      const hashParams = new URLSearchParams(hash);
+      const accessToken = hashParams.get("access_token");
+      const refreshToken = hashParams.get("refresh_token");
 
-      if (!session) {
+      if (!accessToken || !refreshToken) {
         setError("Sessione non disponibile. Prova a ripetere l'accesso.");
         return;
       }
 
-      // Clean the hash and navigate
-      if (typeof window !== "undefined" && window.location.hash) {
-        history.replaceState(null, "", window.location.pathname + window.location.search);
+      const { error: setErr } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (cancelled) return;
+      if (setErr) {
+        setError(setErr.message);
+        return;
       }
+
+      // Clean the hash and navigate
+      history.replaceState(null, "", window.location.pathname + window.location.search);
       router.replace(next);
     })();
 

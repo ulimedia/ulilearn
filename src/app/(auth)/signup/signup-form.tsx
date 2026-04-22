@@ -6,7 +6,6 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ROUTES } from "@/lib/constants";
 
 const PASSWORD_RULE = /^(?=.*\d).{8,}$/;
 

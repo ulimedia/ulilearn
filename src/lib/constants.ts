@@ -35,6 +35,7 @@ export const ROUTES = {
   author: (slug: string) => `/autori/${slug}`,
   account: {
     home: "/io",
+    analisi: "/io/analisi",
     subscription: "/io/abbonamento",
     profile: "/io/profilo",
     saved: "/io/salvati",

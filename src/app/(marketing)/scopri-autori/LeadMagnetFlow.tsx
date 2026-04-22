@@ -17,8 +17,11 @@ export function LeadMagnetFlow() {
 
   const mutation = trpc.leadMagnet.analyze.useMutation({
     onSuccess: (data) => {
-      // Redirect to the permanent result page (shareable, refresh-safe)
-      router.push(`/scopri-autori/risultato/${data.leadId}`);
+      // redirectUrl is a Supabase magic link that sets the session cookie
+      // and lands on /io/analisi/<leadId>. It's absolute — use window.location.
+      if (typeof window !== "undefined") {
+        window.location.href = data.redirectUrl;
+      }
     },
     onError: (err) => {
       setState({

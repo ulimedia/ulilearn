@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth/require-user";
 import { ROUTES } from "@/lib/constants";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { LogoutButton } from "@/components/layout/LogoutButton";
 
 export default async function AccountLayout({ children }: { children: React.ReactNode }) {
   await requireUser();
@@ -36,6 +37,9 @@ export default async function AccountLayout({ children }: { children: React.Reac
             <Link href={ROUTES.account.history} className="py-2 text-paper-300 hover:text-paper-50">
               Cronologia
             </Link>
+            <div className="mt-6 border-t border-paper-300/10 pt-4">
+              <LogoutButton className="text-left text-sm text-paper-400 hover:text-paper-50" />
+            </div>
           </nav>
         </aside>
         <main className="flex-1">{children}</main>

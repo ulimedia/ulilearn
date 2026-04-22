@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { ROUTES, APP_NAME } from "@/lib/constants";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { LogoutButton } from "./LogoutButton";
 
-export function Header() {
+export async function Header() {
+  const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   return (
     <header className="border-b border-paper-300/10 bg-ink-900/80 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -29,12 +35,24 @@ export function Header() {
           >
             Cerca
           </Link>
-          <Link
-            href={ROUTES.account.home}
-            className="text-sm text-paper-50 hover:text-accent"
-          >
-            Io
-          </Link>
+          {user ? (
+            <>
+              <Link
+                href={ROUTES.account.home}
+                className="text-sm text-paper-50 hover:text-accent"
+              >
+                Io
+              </Link>
+              <LogoutButton className="text-sm text-paper-400 hover:text-paper-50" />
+            </>
+          ) : (
+            <Link
+              href={ROUTES.login}
+              className="text-sm text-paper-50 hover:text-accent"
+            >
+              Accedi
+            </Link>
+          )}
         </div>
       </div>
     </header>

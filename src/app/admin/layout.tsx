@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { ROUTES } from "@/lib/constants";
+import { LogoutButton } from "@/components/layout/LogoutButton";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   await requireAdmin();
@@ -60,6 +61,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           >
             Audit log
           </Link>
+          <div className="mt-4 border-t border-paper-300/10 px-2 pt-4">
+            <LogoutButton />
+          </div>
         </nav>
       </aside>
       <main className="flex-1 px-6 py-10">{children}</main>

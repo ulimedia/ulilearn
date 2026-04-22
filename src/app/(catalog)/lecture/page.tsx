@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
+import { TypeListingPage } from "@/components/catalog/TypeListingPage";
 
-export const metadata: Metadata = { title: "Lecture" };
+export const metadata: Metadata = {
+  title: "Lecture",
+  description:
+    "Incontri di un'ora con autori contemporanei. Disponibili on-demand per gli abbonati Ulilearn Plus.",
+};
+
+export const revalidate = 600;
 
 export default function LecturePage() {
-  return (
-    <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-      <h1 className="font-display text-display-lg">Lecture</h1>
-      <p className="mt-4 text-paper-300">Griglia e filtri da popolare nello Sprint 3.</p>
-    </section>
-  );
+  return <TypeListingPage type="lecture" />;
 }

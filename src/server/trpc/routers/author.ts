@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { adminProcedure, createTRPCRouter } from "../init";
+import { adminProcedure, createTRPCRouter, publicProcedure } from "../init";
 import { authorUpsertSchema } from "@/server/content/schemas";
 import { ensureUniqueAuthorSlug, toSlug } from "@/server/content/slug";
 
@@ -116,5 +116,65 @@ export const authorRouter = createTRPCRouter({
         },
       });
       return { ok: true };
+    }),
+
+  // --------------------------------------------------------------------------
+  // PUBLIC procedures
+  // --------------------------------------------------------------------------
+
+  publicList: publicProcedure
+    .input(z.object({ search: z.string().trim().max(120).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const search = input?.search;
+      return ctx.db.author.findMany({
+        where: {
+          contentItems: { some: { status: "published" } },
+          ...(search
+            ? { fullName: { contains: search, mode: "insensitive" } }
+            : {}),
+        },
+        orderBy: { fullName: "asc" },
+        select: {
+          id: true,
+          slug: true,
+          fullName: true,
+          portraitUrl: true,
+          _count: { select: { contentItems: true } },
+        },
+      });
+    }),
+
+  publicGetBySlug: publicProcedure
+    .input(z.object({ slug: z.string().min(1).max(120) }))
+    .query(async ({ ctx, input }) => {
+      const author = await ctx.db.author.findUnique({
+        where: { slug: input.slug },
+        select: {
+          id: true,
+          slug: true,
+          fullName: true,
+          bioMd: true,
+          portraitUrl: true,
+          websiteUrl: true,
+          socialLinks: true,
+          contentItems: {
+            where: { status: "published" },
+            orderBy: { publishedAt: "desc" },
+            select: {
+              id: true,
+              slug: true,
+              type: true,
+              title: true,
+              subtitle: true,
+              coverImageUrl: true,
+              publishedAt: true,
+              liveStartAt: true,
+              durationSeconds: true,
+              isPurchasable: true,
+            },
+          },
+        },
+      });
+      return author;
     }),
 });

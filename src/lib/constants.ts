@@ -64,6 +64,8 @@ export const ROUTES = {
   lecture: "/lecture",
   corsi: "/corsi",
   documentari: "/documentari",
+  masterclass: "/masterclass",
+  workshop: "/workshop",
   authors: "/autori",
   search: "/ricerca",
   login: "/login",

@@ -32,6 +32,6 @@ export const config = {
   matcher: [
     // Run middleware on all paths except static assets and API webhooks
     // (webhooks need raw body; do NOT touch them here).
-    "/((?!_next/static|_next/image|favicon.ico|api/webhooks|public/).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/webhooks|api/cron|public/).*)",
   ],
 };

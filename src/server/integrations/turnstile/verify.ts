@@ -2,15 +2,21 @@ import { env } from "@/lib/env";
 
 /**
  * Verify a Cloudflare Turnstile token server-side.
- * Returns true if the token is valid, false otherwise.
- * If TURNSTILE_SECRET_KEY is not configured, returns true (dev mode).
+ *
+ * Behavior by environment:
+ * - If TURNSTILE_SECRET_KEY is configured → always verify via Cloudflare API.
+ * - If missing (dev OR prod) → return true with a warning log. This is an
+ *   intentional "disabled" mode so the feature works before Turnstile is
+ *   set up; rate limiting (IP + email + budget) is the fallback protection.
+ *
+ * To re-enable strict mode in prod, set TURNSTILE_SECRET_KEY and the client
+ * NEXT_PUBLIC_TURNSTILE_SITE_KEY.
  */
 export async function verifyTurnstile(token: string, ip?: string): Promise<boolean> {
   if (!env.TURNSTILE_SECRET_KEY) {
-    if (env.NODE_ENV === "production") {
-      console.warn("[turnstile] TURNSTILE_SECRET_KEY missing in production");
-      return false;
-    }
+    console.warn(
+      "[turnstile] disabled (no secret key configured). Relying on rate limit + budget cap.",
+    );
     return true;
   }
   if (!token) return false;

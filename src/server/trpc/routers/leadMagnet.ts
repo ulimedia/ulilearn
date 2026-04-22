@@ -14,7 +14,7 @@ import {
   leadMagnetEmailLimiter,
   leadMagnetIpLimiter,
 } from "@/lib/ratelimit";
-import { sendLeadMagnetReport } from "@/server/integrations/resend/send-lead-magnet";
+// import { sendLeadMagnetReport } from "@/server/integrations/resend/send-lead-magnet";
 import { trackEvent } from "@/lib/analytics/events";
 import { env } from "@/lib/env";
 import type { LeadAnalysis } from "@/server/integrations/anthropic/schema";
@@ -196,14 +196,15 @@ export const leadMagnetRouter = createTRPCRouter({
       });
       await addBudgetSpend(result.costCents);
 
-      // 7. Fire-and-forget email
-      sendLeadMagnetReport({
-        leadId: lead.id,
-        to: lead.email,
-        analysis: result.analysis,
-      }).catch((err) => {
-        console.error("[leadMagnet] email send failed", err);
-      });
+      // 7. Fire-and-forget email — DISABILITATO temporaneamente.
+      // Riattiva rimuovendo il commento quando vuoi inviare il report anche via email.
+      // sendLeadMagnetReport({
+      //   leadId: lead.id,
+      //   to: lead.email,
+      //   analysis: result.analysis,
+      // }).catch((err) => {
+      //   console.error("[leadMagnet] email send failed", err);
+      // });
 
       // 8. Track
       await trackEvent({

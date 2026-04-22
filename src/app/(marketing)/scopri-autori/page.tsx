@@ -20,12 +20,14 @@ export default function ScopriAutoriPage() {
         Scopri gli autori che risuonano con il tuo sguardo
       </h1>
       <p className="mt-6 max-w-2xl text-lg leading-relaxed text-paper-300">
-        Inserisci il tuo profilo Instagram e la tua email. In meno di un minuto
-        ti restituiamo un&apos;analisi curatoriale e una selezione di autori —
-        contemporanei e storici — che potrebbero risuonare con te.
+        Inserisci il tuo profilo Instagram e la tua email. Leggiamo le tue
+        ultime foto e ti restituiamo un&apos;analisi curatoriale con una
+        selezione di autori — contemporanei e storici — che potrebbero
+        risuonare con te.
       </p>
       <p className="mt-4 text-sm text-paper-400">
-        Non vediamo le tue foto. Lavoriamo per suggestioni, non per induzione.
+        Il profilo deve essere pubblico. L&apos;analisi può richiedere fino a
+        un minuto e mezzo.
       </p>
 
       <div className="mt-12">
@@ -36,15 +38,23 @@ export default function ScopriAutoriPage() {
         <h2 className="font-display text-2xl">Domande frequenti</h2>
         <Faq
           q="Quanto ci mette?"
-          a="Tra i 15 e i 30 secondi. Ti mostriamo l'analisi a schermo e te la inviamo anche per email."
+          a="Fino a un minuto e mezzo. Leggiamo le tue ultime foto, costruiamo l'analisi e scegliamo gli autori — non è un processo istantaneo."
         />
         <Faq
-          q="Cosa vedete del mio profilo?"
-          a="Solo l'URL che inserisci. Non leggiamo le tue foto, non scorriamo i tuoi follower. L'analisi è una curatela — non una diagnosi — basata sul gesto di cercare autori che ti assomiglino."
+          q="Il profilo deve essere pubblico?"
+          a="Sì. Se il tuo profilo è privato non possiamo vedere le foto e l'analisi sarà meno puntuale."
+        />
+        <Faq
+          q="Cosa guardate esattamente?"
+          a="Le tue ultime sei foto pubbliche, la bio e le didascalie. Non scorriamo follower, non raccogliamo altro. Le foto vengono guardate solo nell'istante dell'analisi e non pubblicate altrove."
         />
         <Faq
           q="Usate i miei dati?"
           a="L'email la usiamo per inviarti l'analisi e, se hai dato il consenso, occasionali suggerimenti editoriali. Puoi disiscriverti in un click. Non vendiamo dati a terzi, mai."
+        />
+        <Faq
+          q="Posso rifarla?"
+          a="Una volta al mese. Lo sguardo cambia più lentamente dei feed."
         />
         <Faq
           q="È gratis?"

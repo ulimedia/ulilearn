@@ -492,12 +492,16 @@ model Lead {
   marketingConsent Boolean    @default(true) @map("marketing_consent")
 
   // LLM output
-  analysisJson       Json?   @map("analysis_json")
-  analysisModel      String? @map("analysis_model")
-  analysisTokensIn   Int?    @map("analysis_tokens_in")
-  analysisTokensOut  Int?    @map("analysis_tokens_out")
-  analysisCostCents  Int?    @map("analysis_cost_cents")
-  analysisError      String? @map("analysis_error")
+  analysisJson       Json?    @map("analysis_json")
+  analysisModel      String?  @map("analysis_model")
+  analysisTokensIn   Int?     @map("analysis_tokens_in")
+  analysisTokensOut  Int?     @map("analysis_tokens_out")
+  analysisCostCents  Int?     @map("analysis_cost_cents")
+  analysisError      String?  @map("analysis_error")
+
+  /// Public URLs of the Instagram posts analyzed (uploaded to Supabase Storage).
+  /// Empty array if scraping failed or upload failed for all.
+  scrapedImages      String[] @default([]) @map("scraped_images")
 
   // Attribution
   utmSource    String? @map("utm_source")

@@ -16,7 +16,7 @@ export function LoadingNarrative() {
   useEffect(() => {
     const id = setInterval(() => {
       setI((prev) => Math.min(prev + 1, PHRASES.length - 1));
-    }, 5000);
+    }, 8000);
     return () => clearInterval(id);
   }, []);
 
@@ -31,8 +31,8 @@ export function LoadingNarrative() {
         />
       </div>
       <p className="mt-8 font-display text-2xl leading-tight">{PHRASES[i]}</p>
-      <p className="mt-3 text-sm text-paper-400">
-        Stiamo chiedendo a Claude di lavorare per suggestioni.
+      <p className="mt-4 text-sm text-paper-400">
+        L&apos;analisi può richiedere fino a 90 secondi. Non chiudere la finestra.
       </p>
       <style jsx>{`
         @keyframes ulilearn-sweep {

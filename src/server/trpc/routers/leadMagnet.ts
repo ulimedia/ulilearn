@@ -4,14 +4,17 @@ import { z } from "zod";
 import { adminProcedure, createTRPCRouter, publicProcedure } from "../init";
 import {
   analyzeInstagramProfile,
+  downloadInstagramImages,
   extractInstagramHandle,
   LeadAnalysisError,
+  type DownloadedImages,
 } from "@/server/integrations/anthropic/lead-magnet-prompt";
 import {
   scrapeInstagramProfile,
   ApifyScrapeError,
   type ScrapedInstagramProfile,
 } from "@/server/integrations/apify/client";
+import { uploadLeadImages } from "@/server/integrations/supabase/upload-images";
 import { verifyTurnstile } from "@/server/integrations/turnstile/verify";
 import {
   addBudgetSpend,
@@ -200,7 +203,13 @@ export const leadMagnetRouter = createTRPCRouter({
           }
         }
 
-        // 8b. Call Claude (1 retry on invalid JSON)
+        // 8b. Download images once (used both for Claude prompt AND for storage upload)
+        let downloadedImages: DownloadedImages | undefined;
+        if (scraped && scraped.latestPosts.length > 0) {
+          downloadedImages = await downloadInstagramImages(scraped.latestPosts);
+        }
+
+        // 8c. Call Claude (1 retry on invalid JSON)
         let result;
         try {
           result = await analyzeInstagramProfile({
@@ -208,6 +217,7 @@ export const leadMagnetRouter = createTRPCRouter({
             instagramUrl: input.instagramUrl,
             instagramHandle: handle,
             scraped,
+            preloadedImages: downloadedImages,
           });
         } catch (e) {
           if (e instanceof LeadAnalysisError && e.code === "invalid_output") {
@@ -217,6 +227,7 @@ export const leadMagnetRouter = createTRPCRouter({
                 instagramUrl: input.instagramUrl,
                 instagramHandle: handle,
                 scraped,
+                preloadedImages: downloadedImages,
               });
             } catch (e2) {
               console.error("[leadMagnet] Claude retry failed", e2);
@@ -248,7 +259,12 @@ export const leadMagnetRouter = createTRPCRouter({
           }
         }
 
-        // 9. Save analysis + budget accounting
+        // 9a. Upload images to Supabase Storage (parallel with DB save for speed)
+        const uploadPromise = downloadedImages
+          ? uploadLeadImages({ leadId: lead.id, images: downloadedImages })
+          : Promise.resolve<Array<string | null>>([]);
+
+        // 9b. Save analysis + budget accounting
         await ctx.db.lead.update({
           where: { id: lead.id },
           data: {
@@ -262,6 +278,24 @@ export const leadMagnetRouter = createTRPCRouter({
           },
         });
         await addBudgetSpend(result.costCents);
+
+        // 9c. Commit the uploaded image URLs (best-effort — if this fails
+        // the analysis is still usable, just without the photo grid)
+        try {
+          const uploaded = await uploadPromise;
+          const publicUrls = uploaded.filter((u): u is string => !!u);
+          if (publicUrls.length > 0) {
+            await ctx.db.lead.update({
+              where: { id: lead.id },
+              data: { scrapedImages: publicUrls },
+            });
+          }
+        } catch (e) {
+          console.warn(
+            "[leadMagnet] image upload/save failed",
+            e instanceof Error ? e.message : e,
+          );
+        }
 
         // 10. Create a passwordless Supabase auth user (triggers handle_new_auth_user,
         // which auto-links this lead to the new user via email match).

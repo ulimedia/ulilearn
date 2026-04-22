@@ -55,18 +55,38 @@ Tono: seconda persona singolare, calda ma non confidenziale. Frasi medie.
 Mai elenchi puntati nel corpo dell'analisi. Mai gergo accademico. Mai
 superlativi pubblicitari ("incredibile", "fantastico"). Ulilearn non grida.
 
-Vincoli ferrei:
-- Usa SOLO autori realmente esistenti e verificabili (Sergio Larrain, Luigi
-  Ghirri, Sally Mann, Todd Hido, Rinko Kawauchi, Alec Soth, Guido Guidi,
-  Nan Goldin, Stephen Shore, Saul Leiter, Vivian Maier, Henri Cartier-Bresson,
-  Graciela Iturbide, Bernd & Hilla Becher, Raghubir Singh, Masahisa Fukase,
-  Gabriele Basilico, Mario Giacomelli, ecc.). Mai inventare persone.
-- Per ogni autore, motiva il matching con 1-2 frasi SPECIFICHE che colleghino
-  l'autore a qualcosa che hai visto nelle foto. Evita "ti piacerà perché è bravo".
-- Non parlare di abbonamento, prezzi, Ulilearn Plus. Quello è lavoro del banner.
-- Mai inventare numeri di follower, premi, mostre.
-- Se le foto sono poche, selfie/lifestyle, screenshot o non fotografiche, nel
-  campo "caveat" dichiara il limite e lavora comunque per suggestione.
+REGOLE SULLA SELEZIONE DI AUTORI (critiche — qui si gioca la tua credibilità):
+
+- Mai ripetere lo stesso autore tra "contemporanei" e "storici".
+- I 4-6 autori devono essere DIVERSI tra loro per approccio, geografia e
+  linguaggio. Se suggerisci 3 fotografi di strada americani, hai fallito.
+- Evita le scelte ovvie e inflazionate — i "nomi da calendario" che chiunque
+  abbia fatto un corso base conosce. In particolare diffida di:
+  Henri Cartier-Bresson, Vivian Maier, Helmut Newton, Sebastião Salgado,
+  Steve McCurry, Robert Capa, Ansel Adams come prime scelte generiche.
+  Puoi citarli SOLO se c'è un collegamento molto puntuale con quello che
+  vedi nelle foto (es. un gesto, una luce, un'ossessione tematica specifica).
+- Privilegia autori meno battuti ma reali e documentati: Luigi Ghirri,
+  Guido Guidi, Gabriele Basilico, Mario Giacomelli, Mimmo Jodice, Franco Fontana,
+  Ugo Mulas, Letizia Battaglia, Paolo Pellegrin, Massimo Vitali, Olivo Barbieri,
+  Marina Ballo Charmet; Sergio Larrain, Graciela Iturbide, Paz Errázuriz,
+  Raghubir Singh, Pablo Ortiz Monasterio, Daido Moriyama, Masahisa Fukase,
+  Shomei Tomatsu, Rinko Kawauchi, Hiroshi Sugimoto, Rinko Kawauchi,
+  Todd Hido, Alec Soth, Stephen Shore, Joel Meyerowitz, Saul Leiter,
+  Sally Mann, Nan Goldin, Larry Sultan, Mark Steinmetz, Bryan Schutmaat,
+  Mitch Epstein, William Eggleston, Joel Sternfeld, Mark Cohen, Nicholas Nixon,
+  Bernd e Hilla Becher, August Sander, Eugène Atget, Michael Schmidt,
+  Dirk Braeckman, JH Engström, Anders Petersen, Jacob Aue Sobol,
+  Trent Parke, Bill Henson, Narelle Autio, Max Pam, Katrin Koenning,
+  Debi Cornwall, Lynne Cohen, Seydou Keïta, Malick Sidibé, Hélène Amouzou.
+  Questa è una lista NON esaustiva — sentiti libero di citare altri nomi
+  realmente esistenti e documentabili, purché non siano invenzioni.
+- Per ogni autore, la motivazione (campo "why") deve collegare esplicitamente
+  almeno UN dettaglio che hai osservato nelle foto. Non "ti piacerà perché è
+  un maestro" ma "la tua ricorrenza del verde umido e dei campi vuoti mi
+  ricorda il suo lavoro sugli argini di Po".
+- Mai inventare date, premi, libri, numeri di follower.
+- Mai parlare di abbonamento, prezzi, Ulilearn Plus. Quello è lavoro del banner.
 
 Output: chiama l'unico tool disponibile, "emit_analysis", passando un
 oggetto JSON valido. Niente testo libero.`;
@@ -148,7 +168,17 @@ export type AnalyzeInput = {
   instagramHandle: string | null;
   /** Populated if scraping succeeded; null when private/blind fallback. */
   scraped?: ScrapedInstagramProfile | null;
+  /**
+   * Pre-downloaded images, same order as scraped.latestPosts.
+   * Each entry is null when the download failed. If undefined, we download
+   * them inside this function. Pass downloaded images to avoid duplicate
+   * fetches when the caller needs the bytes for something else (e.g. upload
+   * to Supabase Storage).
+   */
+  preloadedImages?: Array<FetchedImage | null>;
 };
+
+export type DownloadedImages = Array<FetchedImage | null>;
 
 export type AnalyzeResult = {
   analysis: LeadAnalysis;
@@ -177,7 +207,11 @@ export async function analyzeInstagramProfile(
 
   const systemPrompt = useVision ? SYSTEM_PROMPT_VISION : SYSTEM_PROMPT_BLIND;
   const userContent = useVision
-    ? await buildVisionUserContent(input.scraped!, input.instagramUrl)
+    ? await buildVisionUserContent(
+        input.scraped!,
+        input.instagramUrl,
+        input.preloadedImages,
+      )
     : [{ type: "text" as const, text: buildBlindUserMessage(input) }];
 
   let response;
@@ -209,11 +243,32 @@ export async function analyzeInstagramProfile(
     );
   }
 
+  // Dedupe authors: if the same name appears in both contemporary and historical,
+  // drop it from historical (keep the first occurrence).
+  const seenNames = new Set<string>();
+  const uniqueContemporary = parsed.data.contemporary.filter((a) => {
+    const key = a.name.toLowerCase().trim();
+    if (seenNames.has(key)) return false;
+    seenNames.add(key);
+    return true;
+  });
+  const uniqueHistorical = parsed.data.historical.filter((a) => {
+    const key = a.name.toLowerCase().trim();
+    if (seenNames.has(key)) return false;
+    seenNames.add(key);
+    return true;
+  });
+  const deduped = {
+    ...parsed.data,
+    contemporary: uniqueContemporary,
+    historical: uniqueHistorical,
+  };
+
   const tokensIn = response.usage.input_tokens;
   const tokensOut = response.usage.output_tokens;
 
   return {
-    analysis: parsed.data,
+    analysis: deduped,
     model,
     tokensIn,
     tokensOut,
@@ -238,6 +293,7 @@ function buildBlindUserMessage(input: AnalyzeInput): string {
 async function buildVisionUserContent(
   scraped: ScrapedInstagramProfile,
   instagramUrl: string,
+  preloaded: DownloadedImages | undefined,
 ): Promise<Anthropic.MessageParam["content"]> {
   const intro: string[] = [
     `Profilo Instagram da analizzare:`,
@@ -250,9 +306,7 @@ async function buildVisionUserContent(
   if (scraped.postsCount) intro.push(`- Post totali: ${scraped.postsCount}`);
   if (scraped.followersCount) intro.push(`- Follower: ${scraped.followersCount}`);
   intro.push(``);
-  intro.push(
-    `Qui sotto ti mostro le ultime foto pubblicate.`,
-  );
+  intro.push(`Qui sotto ti mostro le ultime foto pubblicate.`);
   intro.push(
     `Osservale davvero (luce, palette, composizione, ricorrenze) e costruisci l'analisi.`,
   );
@@ -261,38 +315,23 @@ async function buildVisionUserContent(
     { type: "text", text: intro.join("\n") },
   ];
 
-  // Fetch each image server-side and pass as base64. Anthropic rejects
-  // `source.type: "url"` for Instagram CDN URLs because of robots.txt.
-  // We parallelize the downloads and drop any image that fails.
-  const downloads = await Promise.all(
-    scraped.latestPosts.map(async (post) => {
-      try {
-        const img = await fetchImageAsBase64(post.imageUrl);
-        return { post, img };
-      } catch (e) {
-        console.warn(
-          `[leadMagnet] image fetch failed for ${post.imageUrl}: ${
-            e instanceof Error ? e.message : "unknown"
-          }`,
-        );
-        return null;
-      }
-    }),
-  );
+  const downloaded =
+    preloaded ?? (await downloadInstagramImages(scraped.latestPosts));
 
   let added = 0;
-  downloads.forEach((entry, i) => {
-    if (!entry) return;
+  downloaded.forEach((img, i) => {
+    if (!img) return;
     blocks.push({
       type: "image",
       source: {
         type: "base64",
-        media_type: entry.img.mediaType,
-        data: entry.img.data,
+        media_type: img.mediaType,
+        data: img.data,
       },
     });
-    if (entry.post.caption) {
-      const cap = entry.post.caption.slice(0, 600).replace(/\n+/g, " ");
+    const caption = scraped.latestPosts[i]?.caption;
+    if (caption) {
+      const cap = caption.slice(0, 600).replace(/\n+/g, " ");
       blocks.push({
         type: "text",
         text: `Caption foto ${i + 1}: ${cap}`,
@@ -312,10 +351,34 @@ async function buildVisionUserContent(
   return blocks;
 }
 
-type FetchedImage = {
-  data: string;
+export type FetchedImage = {
+  data: string; // base64
   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+  bytes: Buffer;
 };
+
+/**
+ * Download Instagram post images server-side, in parallel. Returns an array
+ * aligned with `posts` — each entry is null if the download failed.
+ */
+export async function downloadInstagramImages(
+  posts: ScrapedInstagramProfile["latestPosts"],
+): Promise<DownloadedImages> {
+  return Promise.all(
+    posts.map(async (post) => {
+      try {
+        return await fetchImageAsBase64(post.imageUrl);
+      } catch (e) {
+        console.warn(
+          `[leadMagnet] image fetch failed for ${post.imageUrl}: ${
+            e instanceof Error ? e.message : "unknown"
+          }`,
+        );
+        return null;
+      }
+    }),
+  );
+}
 
 async function fetchImageAsBase64(url: string): Promise<FetchedImage> {
   const res = await fetch(url, {
@@ -334,14 +397,11 @@ async function fetchImageAsBase64(url: string): Promise<FetchedImage> {
   if (contentType.includes("png")) mediaType = "image/png";
   else if (contentType.includes("webp")) mediaType = "image/webp";
   else if (contentType.includes("gif")) mediaType = "image/gif";
-  const buf = await res.arrayBuffer();
-  // Cap to ~4MB per image (Anthropic limit is 5MB per image, and base64
-  // expands by ~33%; keeping raw bytes under 3.5MB is a safe proxy).
+  const buf = Buffer.from(await res.arrayBuffer());
   if (buf.byteLength > 3_600_000) {
     throw new Error(`image too large (${buf.byteLength} bytes)`);
   }
-  const data = Buffer.from(buf).toString("base64");
-  return { data, mediaType };
+  return { data: buf.toString("base64"), mediaType, bytes: buf };
 }
 
 /**

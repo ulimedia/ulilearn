@@ -21,9 +21,11 @@ function buildCtaUrl(base: string) {
 export function AnalysisView({
   analysis,
   email,
+  images,
 }: {
   analysis: LeadAnalysis;
   email: string;
+  images?: string[];
 }) {
   const ctaUrl = buildCtaUrl(KAJABI_URL);
   return (
@@ -36,6 +38,8 @@ export function AnalysisView({
           </p>
         )}
       </header>
+
+      {images && images.length > 0 && <PhotosGrid images={images} />}
 
       <section className="space-y-5 text-lg leading-relaxed text-paper-100">
         {analysis.intro.map((para, i) => (
@@ -59,6 +63,30 @@ export function AnalysisView({
         Salva questa pagina: il link è permanente e puoi condividerlo.
       </p>
     </article>
+  );
+}
+
+function PhotosGrid({ images }: { images: string[] }) {
+  return (
+    <section>
+      <p className="text-xs uppercase tracking-widest text-paper-400">
+        Le foto che abbiamo letto
+      </p>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {images.map((src, i) => (
+          // Use <img> not next/image: URLs come from our Supabase bucket
+          // and avoid the Next image optimizer overhead for a result page.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={src}
+            src={src}
+            alt={`Foto ${i + 1}`}
+            className="aspect-square w-full object-cover"
+            loading="lazy"
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 

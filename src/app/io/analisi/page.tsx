@@ -25,47 +25,60 @@ export default async function AnalisiListPage() {
       id: true,
       createdAt: true,
       instagramHandle: true,
+      source: true,
       analysisJson: true,
     },
   });
 
-  const mostRecent = analyses[0];
-  const canDoNew =
-    !mostRecent ||
-    Date.now() - mostRecent.createdAt.getTime() >= THIRTY_DAYS_MS;
-  const nextAvailable = mostRecent
-    ? new Date(mostRecent.createdAt.getTime() + THIRTY_DAYS_MS)
-    : null;
+  const lastOfSource = (src: "lead_magnet_ig" | "lead_magnet_project") =>
+    analyses.find((a) => a.source === src);
+  const lastIg = lastOfSource("lead_magnet_ig");
+  const lastProject = lastOfSource("lead_magnet_project");
+  const igAvailable =
+    !lastIg || Date.now() - lastIg.createdAt.getTime() >= THIRTY_DAYS_MS;
+  const projectAvailable =
+    !lastProject ||
+    Date.now() - lastProject.createdAt.getTime() >= THIRTY_DAYS_MS;
 
   return (
     <section>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4">
         <div>
           <h1 className="font-display text-3xl">Le mie analisi</h1>
           <p className="mt-2 text-sm text-paper-300">
-            Puoi fare un&apos;analisi al mese. Il tuo sguardo cambia più lentamente
-            dei tuoi feed.
+            Puoi fare un&apos;analisi al mese per ciascun tipo. Il tuo sguardo
+            cambia più lentamente dei tuoi feed.
           </p>
         </div>
-        {canDoNew ? (
-          <Link href={ROUTES.scopriAutori} className={cn(buttonVariants({ size: "sm" }))}>
-            Nuova analisi
-          </Link>
-        ) : (
-          <div className="text-right text-xs text-paper-400">
-            Prossima disponibile
-            <p className="mt-1 text-paper-300">
-              {nextAvailable ? formatDateIT(nextAvailable) : ""}
-            </p>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-3">
+          <NewAnalysisButton
+            href={ROUTES.scopriAutori}
+            available={igAvailable}
+            nextAvailable={
+              lastIg ? new Date(lastIg.createdAt.getTime() + THIRTY_DAYS_MS) : null
+            }
+          >
+            Analizza il profilo Instagram
+          </NewAnalysisButton>
+          <NewAnalysisButton
+            href={ROUTES.analizzaProgetto}
+            available={projectAvailable}
+            nextAvailable={
+              lastProject
+                ? new Date(lastProject.createdAt.getTime() + THIRTY_DAYS_MS)
+                : null
+            }
+          >
+            Analizza un&apos;idea di progetto
+          </NewAnalysisButton>
+        </div>
       </div>
 
       {analyses.length === 0 ? (
         <div className="mt-10">
           <EmptyState
             title="Nessuna analisi ancora"
-            description="Fai la tua prima analisi del profilo Instagram."
+            description="Scegli il lead magnet che preferisci per iniziare."
             action={
               <Link
                 href={ROUTES.scopriAutori}
@@ -87,10 +100,11 @@ export default async function AnalisiListPage() {
                   href={`/io/analisi/${a.id}`}
                   className="block p-5 transition-colors duration-250 ease-soft hover:bg-paper-50/5"
                 >
-                  <p className="text-xs uppercase tracking-wide text-paper-400">
-                    {formatDateIT(a.createdAt)}
-                    {a.instagramHandle && (
-                      <span className="ml-3 text-paper-300">@{a.instagramHandle}</span>
+                  <p className="flex flex-wrap items-center gap-3 text-xs uppercase tracking-wide text-paper-400">
+                    <SourceBadge source={a.source} />
+                    <span>{formatDateIT(a.createdAt)}</span>
+                    {a.source === "lead_magnet_ig" && a.instagramHandle && (
+                      <span className="text-paper-300">@{a.instagramHandle}</span>
                     )}
                   </p>
                   <p className="mt-2 font-display text-xl">{headline}</p>
@@ -101,5 +115,50 @@ export default async function AnalisiListPage() {
         </ul>
       )}
     </section>
+  );
+}
+
+function NewAnalysisButton({
+  href,
+  available,
+  nextAvailable,
+  children,
+}: {
+  href: string;
+  available: boolean;
+  nextAvailable: Date | null;
+  children: React.ReactNode;
+}) {
+  if (available) {
+    return (
+      <Link
+        href={href}
+        className={cn(buttonVariants({ size: "sm", variant: "secondary" }))}
+      >
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <div className="border border-paper-300/15 px-4 py-2 text-xs text-paper-400">
+      <p>{children}</p>
+      <p className="mt-1 text-paper-300">
+        Disponibile il {nextAvailable ? formatDateIT(nextAvailable) : ""}
+      </p>
+    </div>
+  );
+}
+
+function SourceBadge({ source }: { source: "lead_magnet_ig" | "lead_magnet_project" }) {
+  const label =
+    source === "lead_magnet_project" ? "Progetto" : "Instagram";
+  const colors =
+    source === "lead_magnet_project"
+      ? "bg-accent/20 text-accent"
+      : "bg-paper-300/20 text-paper-200";
+  return (
+    <span className={`inline-block px-2 py-0.5 text-[10px] ${colors}`}>
+      {label}
+    </span>
   );
 }

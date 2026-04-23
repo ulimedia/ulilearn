@@ -11,6 +11,7 @@ export type AnalyticsEventName =
   | "subscription_canceled"
   | "subscription_reactivated"
   | "lead_magnet_submitted"
+  | "lead_magnet_project_analyzed"
   | "lead_magnet_converted";
 
 export async function trackEvent(params: {

@@ -55,6 +55,32 @@ export const leadMagnetEmailLimiter = redis
     })
   : permissive();
 
+// Mirrors for the second lead magnet (project brief). Same numeric limits,
+// distinct Redis prefixes so the two magnets are independent.
+export const leadMagnetProjectIpLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(
+        env.LEAD_MAGNET_RATE_LIMIT_PER_IP_HOUR ?? 5,
+        "1 h",
+      ),
+      prefix: "rl:lead:project:ip",
+      analytics: true,
+    })
+  : permissive();
+
+export const leadMagnetProjectEmailLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.fixedWindow(
+        env.LEAD_MAGNET_RATE_LIMIT_PER_EMAIL_DAY ?? 3,
+        "24 h",
+      ),
+      prefix: "rl:lead:project:email",
+      analytics: true,
+    })
+  : permissive();
+
 const BUDGET_KEY = () => {
   // ISO week key YYYY-WW
   const now = new Date();

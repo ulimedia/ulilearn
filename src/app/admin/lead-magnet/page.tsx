@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { formatCurrencyEUR, formatDateIT } from "@/lib/utils";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { prisma } from "@/server/db/client";
@@ -10,14 +11,32 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export default async function AdminLeadMagnetPage() {
+const SOURCE_FILTERS = ["all", "lead_magnet_ig", "lead_magnet_project"] as const;
+type SourceFilter = (typeof SOURCE_FILTERS)[number];
+
+function parseSource(raw: string | string[] | undefined): SourceFilter {
+  if (typeof raw === "string" && (SOURCE_FILTERS as readonly string[]).includes(raw)) {
+    return raw as SourceFilter;
+  }
+  return "all";
+}
+
+export default async function AdminLeadMagnetPage({
+  searchParams,
+}: {
+  searchParams?: { source?: string };
+}) {
   await requireAdmin();
 
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const sourceFilter = parseSource(searchParams?.source);
+  const sourceWhere =
+    sourceFilter === "all" ? {} : { source: sourceFilter };
 
   const [leads, totalLeads, leadsLast30d, convertedLast30d, weeklySpend] =
     await Promise.all([
       prisma.lead.findMany({
+        where: sourceWhere,
         orderBy: { createdAt: "desc" },
         take: 100,
         select: {
@@ -25,6 +44,7 @@ export default async function AdminLeadMagnetPage() {
           email: true,
           instagramHandle: true,
           instagramUrl: true,
+          source: true,
           status: true,
           analysisCostCents: true,
           emailSentAt: true,
@@ -33,10 +53,14 @@ export default async function AdminLeadMagnetPage() {
           createdAt: true,
         },
       }),
-      prisma.lead.count(),
-      prisma.lead.count({ where: { createdAt: { gte: since } } }),
+      prisma.lead.count({ where: sourceWhere }),
+      prisma.lead.count({ where: { ...sourceWhere, createdAt: { gte: since } } }),
       prisma.lead.count({
-        where: { convertedUserId: { not: null }, createdAt: { gte: since } },
+        where: {
+          ...sourceWhere,
+          convertedUserId: { not: null },
+          createdAt: { gte: since },
+        },
       }),
       getWeeklySpendCents(),
     ]);
@@ -48,8 +72,18 @@ export default async function AdminLeadMagnetPage() {
     <section>
       <h1 className="font-display text-3xl">Lead magnet</h1>
       <p className="mt-2 text-sm text-paper-300">
-        Analisi Instagram → autori. PRD §6.8 / lead gen.
+        Analisi Instagram + brief di progetto. PRD §6.8 / lead gen.
       </p>
+
+      <nav className="mt-6 flex gap-2 text-xs">
+        <SourceTab current={sourceFilter} value="all" label="Tutti" />
+        <SourceTab current={sourceFilter} value="lead_magnet_ig" label="Instagram" />
+        <SourceTab
+          current={sourceFilter}
+          value="lead_magnet_project"
+          label="Progetto"
+        />
+      </nav>
 
       <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi label="Lead totali" value={totalLeads.toString()} />
@@ -71,6 +105,7 @@ export default async function AdminLeadMagnetPage() {
           <thead className="bg-ink-800 text-xs uppercase tracking-wider text-paper-400">
             <tr>
               <Th>Data</Th>
+              <Th>Tipo</Th>
               <Th>Email</Th>
               <Th>Handle</Th>
               <Th>Status</Th>
@@ -83,16 +118,23 @@ export default async function AdminLeadMagnetPage() {
             {leads.map((l) => (
               <tr key={l.id} className="border-t border-paper-300/10">
                 <Td>{formatDateIT(l.createdAt)}</Td>
+                <Td>
+                  <SourceBadge source={l.source} />
+                </Td>
                 <Td>{l.email}</Td>
                 <Td>
-                  <a
-                    href={l.instagramUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-accent hover:underline"
-                  >
-                    {l.instagramHandle ?? "—"}
-                  </a>
+                  {l.source === "lead_magnet_ig" && l.instagramUrl ? (
+                    <a
+                      href={l.instagramUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent hover:underline"
+                    >
+                      {l.instagramHandle ?? "—"}
+                    </a>
+                  ) : (
+                    <span className="text-paper-400">—</span>
+                  )}
                 </Td>
                 <Td>
                   <StatusBadge status={l.status} />
@@ -108,7 +150,7 @@ export default async function AdminLeadMagnetPage() {
             ))}
             {leads.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-paper-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-paper-400">
                   Nessun lead ancora.
                 </td>
               </tr>
@@ -149,5 +191,43 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`inline-block px-2 py-1 text-xs ${colors[status] ?? "bg-paper-400/20 text-paper-300"}`}>
       {status}
     </span>
+  );
+}
+
+function SourceBadge({ source }: { source: "lead_magnet_ig" | "lead_magnet_project" }) {
+  const label = source === "lead_magnet_project" ? "progetto" : "instagram";
+  const colors =
+    source === "lead_magnet_project"
+      ? "bg-accent/20 text-accent"
+      : "bg-paper-300/20 text-paper-200";
+  return (
+    <span className={`inline-block px-2 py-0.5 text-[10px] ${colors}`}>
+      {label}
+    </span>
+  );
+}
+
+function SourceTab({
+  current,
+  value,
+  label,
+}: {
+  current: SourceFilter;
+  value: SourceFilter;
+  label: string;
+}) {
+  const href = value === "all" ? "?" : `?source=${value}`;
+  const active = current === value;
+  return (
+    <Link
+      href={href}
+      className={`border px-3 py-1.5 ${
+        active
+          ? "border-accent text-accent"
+          : "border-paper-300/20 text-paper-300 hover:text-paper-50"
+      }`}
+    >
+      {label}
+    </Link>
   );
 }

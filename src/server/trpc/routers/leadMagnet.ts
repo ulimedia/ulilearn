@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
+import type { LeadSource } from "@prisma/client";
 import { z } from "zod";
 import { adminProcedure, createTRPCRouter, publicProcedure } from "../init";
+import type { TRPCContext } from "../context";
 import {
   analyzeInstagramProfile,
   downloadInstagramImages,
@@ -9,6 +11,10 @@ import {
   LeadAnalysisError,
   type DownloadedImages,
 } from "@/server/integrations/anthropic/lead-magnet-prompt";
+import {
+  analyzeProjectBrief,
+  ProjectAnalysisError,
+} from "@/server/integrations/anthropic/project-analysis-prompt";
 import {
   scrapeInstagramProfile,
   ApifyScrapeError,
@@ -21,6 +27,8 @@ import {
   getWeeklySpendCents,
   leadMagnetEmailLimiter,
   leadMagnetIpLimiter,
+  leadMagnetProjectEmailLimiter,
+  leadMagnetProjectIpLimiter,
 } from "@/lib/ratelimit";
 // import { sendLeadMagnetReport } from "@/server/integrations/resend/send-lead-magnet";
 import { trackEvent } from "@/lib/analytics/events";
@@ -62,6 +70,56 @@ function getClientIp(headers: Headers): string | undefined {
     undefined
   );
 }
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Enforce "one analysis per month per email, per lead magnet source".
+ * Throws TOO_MANY_REQUESTS with an IT-formatted date if the most recent
+ * analyzed lead for that email+source is within the last 30 days.
+ */
+async function checkMonthlyLimit(
+  db: TRPCContext["db"],
+  email: string,
+  source: LeadSource,
+): Promise<void> {
+  const last = await db.lead.findFirst({
+    where: {
+      email,
+      source,
+      status: { in: ["analyzed", "emailed", "converted"] },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  if (last && Date.now() - last.createdAt.getTime() < THIRTY_DAYS_MS) {
+    const nextAvailable = new Date(last.createdAt.getTime() + THIRTY_DAYS_MS);
+    const dateIT = nextAvailable.toLocaleDateString("it-IT", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: `[monthly_limit] Hai già fatto un'analisi questo mese. Potrai richiederne una nuova il ${dateIT}.`,
+    });
+  }
+}
+
+const analyzeProjectInput = z.object({
+  email: z.string().email().max(200),
+  projectBrief: z.string().trim().min(120).max(4000),
+  marketingConsent: z.boolean(),
+  turnstileToken: z.string().min(1).max(4000),
+  utm: z
+    .object({
+      source: z.string().max(120).optional(),
+      medium: z.string().max(120).optional(),
+      campaign: z.string().max(120).optional(),
+    })
+    .optional(),
+  referrerUrl: z.string().max(500).optional(),
+});
 
 export const leadMagnetRouter = createTRPCRouter({
   /**
@@ -118,34 +176,8 @@ export const leadMagnetRouter = createTRPCRouter({
           });
         }
 
-        // 4. One-analysis-per-month limit (based on email, since the user
-        // may not have an account yet). Check the most recent analyzed lead.
-        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-        const lastAnalyzed = await ctx.db.lead.findFirst({
-          where: {
-            email: emailLower,
-            status: { in: ["analyzed", "emailed", "converted"] },
-          },
-          orderBy: { createdAt: "desc" },
-          select: { createdAt: true },
-        });
-        if (
-          lastAnalyzed &&
-          Date.now() - lastAnalyzed.createdAt.getTime() < THIRTY_DAYS_MS
-        ) {
-          const nextAvailable = new Date(
-            lastAnalyzed.createdAt.getTime() + THIRTY_DAYS_MS,
-          );
-          const dateIT = nextAvailable.toLocaleDateString("it-IT", {
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-          });
-          throw new TRPCError({
-            code: "TOO_MANY_REQUESTS",
-            message: `[monthly_limit] Hai già fatto un'analisi questo mese. Potrai richiederne una nuova il ${dateIT}.`,
-          });
-        }
+        // 4. One-analysis-per-month limit for this lead magnet source.
+        await checkMonthlyLimit(ctx.db, emailLower, "lead_magnet_ig");
 
         // 5. Soft email-day limit (Upstash, smaller window)
         const emailRl = await leadMagnetEmailLimiter.limit(emailLower);
@@ -354,6 +386,205 @@ export const leadMagnetRouter = createTRPCRouter({
     ),
 
   /**
+   * Second lead magnet: user describes a project idea as free-form text,
+   * Claude (with web search) produces a critical reading + similar real
+   * projects. No Instagram, no Vision, no image upload.
+   *
+   * Flow mirrors `analyze`, minus scraping and image handling:
+   *   1. Turnstile
+   *   2. Rate limit IP
+   *   3. Reject if email already has a Ulilearn account
+   *   4. Monthly limit for this source
+   *   5. Soft daily email limit
+   *   6. Insert lead row (source=lead_magnet_project)
+   *   7. Check weekly budget
+   *   8. Call Claude + web_search (1 retry on invalid JSON)
+   *   9. Save analysis + budget accounting
+   *   10. Create passwordless user + magic link
+   *   11. Track
+   */
+  analyzeProject: publicProcedure
+    .input(analyzeProjectInput)
+    .mutation(
+      async ({ ctx, input }): Promise<{ leadId: string; redirectUrl: string }> => {
+        const headers = new Headers();
+        const ip = getClientIp(headers);
+        const emailLower = input.email.toLowerCase();
+
+        const tsOk = await verifyTurnstile(input.turnstileToken, ip);
+        if (!tsOk) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Verifica di sicurezza fallita. Ricarica la pagina e riprova.",
+          });
+        }
+
+        const ipKey = hashIp(ip) ?? "anon";
+        const ipRl = await leadMagnetProjectIpLimiter.limit(ipKey);
+        if (!ipRl.success) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message:
+              "Hai già richiesto un'analisi di recente. Riprova tra qualche minuto.",
+          });
+        }
+
+        const existingUser = await ctx.db.user.findUnique({
+          where: { email: emailLower },
+          select: { id: true },
+        });
+        if (existingUser) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "[email_exists] Esiste già un account con questa email. Accedi per vedere la tua analisi.",
+          });
+        }
+
+        await checkMonthlyLimit(ctx.db, emailLower, "lead_magnet_project");
+
+        const emailRl = await leadMagnetProjectEmailLimiter.limit(emailLower);
+        if (!emailRl.success) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Hai già richiesto più analisi oggi con questa email.",
+          });
+        }
+
+        const lead = await ctx.db.lead.create({
+          data: {
+            email: emailLower,
+            source: "lead_magnet_project",
+            projectBrief: input.projectBrief,
+            marketingConsent: input.marketingConsent,
+            utmSource: input.utm?.source,
+            utmMedium: input.utm?.medium,
+            utmCampaign: input.utm?.campaign,
+            referrerUrl: input.referrerUrl,
+            ipHash: hashIp(ip),
+            turnstileVerified: true,
+          },
+          select: { id: true, email: true },
+        });
+
+        const spent = await getWeeklySpendCents();
+        if (spent > (env.ANTHROPIC_MAX_COST_CENTS_PER_WEEK ?? 5000)) {
+          await ctx.db.lead.update({
+            where: { id: lead.id },
+            data: { analysisError: "weekly_budget_exceeded" },
+          });
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message:
+              "Stiamo ricevendo molte richieste questa settimana. Riprova tra qualche giorno.",
+          });
+        }
+
+        let result;
+        try {
+          result = await analyzeProjectBrief({
+            email: input.email,
+            projectBrief: input.projectBrief,
+          });
+        } catch (e) {
+          if (e instanceof ProjectAnalysisError && e.code === "invalid_output") {
+            try {
+              result = await analyzeProjectBrief({
+                email: input.email,
+                projectBrief: input.projectBrief,
+              });
+            } catch (e2) {
+              console.error("[leadMagnet:project] Claude retry failed", e2);
+              await ctx.db.lead.update({
+                where: { id: lead.id },
+                data: {
+                  analysisError:
+                    e2 instanceof Error ? e2.message.slice(0, 500) : "retry failed",
+                },
+              });
+              throw new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: `[claude_retry_failed] ${
+                  e2 instanceof Error ? e2.message.slice(0, 200) : "unknown"
+                }`,
+              });
+            }
+          } else {
+            console.error("[leadMagnet:project] Claude call failed", e);
+            const errMsg = e instanceof Error ? e.message : "api error";
+            await ctx.db.lead.update({
+              where: { id: lead.id },
+              data: { analysisError: errMsg.slice(0, 500) },
+            });
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `[claude_error] ${errMsg.slice(0, 200)}`,
+            });
+          }
+        }
+
+        await ctx.db.lead.update({
+          where: { id: lead.id },
+          data: {
+            status: "analyzed",
+            analysisJson: result.analysis as unknown as object,
+            analysisModel: result.model,
+            analysisTokensIn: result.tokensIn,
+            analysisTokensOut: result.tokensOut,
+            analysisCostCents: result.costCents,
+            analysisError: null,
+          },
+        });
+        await addBudgetSpend(result.costCents);
+
+        try {
+          await createPasswordlessUser({
+            email: emailLower,
+            fullName: null,
+            createdVia: "lead_magnet",
+          });
+        } catch (e) {
+          console.error("[leadMagnet:project] createPasswordlessUser failed", e);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `[account_create_failed] ${
+              e instanceof Error ? e.message.slice(0, 200) : "unknown"
+            }`,
+          });
+        }
+
+        let redirectUrl: string;
+        try {
+          redirectUrl = await generateMagicLinkUrl({
+            email: emailLower,
+            next: `/io/analisi/${lead.id}`,
+          });
+        } catch (e) {
+          console.error("[leadMagnet:project] generateMagicLinkUrl failed", e);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `[magiclink_failed] ${
+              e instanceof Error ? e.message.slice(0, 200) : "unknown"
+            }`,
+          });
+        }
+
+        await trackEvent({
+          userId: null,
+          name: "lead_magnet_project_analyzed",
+          properties: {
+            leadId: lead.id,
+            utm: input.utm,
+            costCents: result.costCents,
+            webSearches: result.webSearches,
+          },
+        }).catch(() => {});
+
+        return { leadId: lead.id, redirectUrl };
+      },
+    ),
+
+  /**
    * Admin: paginated list of leads + basic KPIs.
    */
   adminList: adminProcedure
@@ -364,11 +595,15 @@ export const leadMagnetRouter = createTRPCRouter({
         status: z
           .enum(["new", "analyzed", "emailed", "converted", "bounced"])
           .optional(),
+        source: z.enum(["lead_magnet_ig", "lead_magnet_project"]).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
       const leads = await ctx.db.lead.findMany({
-        where: input.status ? { status: input.status } : undefined,
+        where: {
+          ...(input.status ? { status: input.status } : {}),
+          ...(input.source ? { source: input.source } : {}),
+        },
         orderBy: { createdAt: "desc" },
         take: input.limit + 1,
         cursor: input.cursor ? { id: input.cursor } : undefined,
@@ -378,6 +613,7 @@ export const leadMagnetRouter = createTRPCRouter({
           email: true,
           instagramHandle: true,
           instagramUrl: true,
+          source: true,
           status: true,
           analysisCostCents: true,
           emailSentAt: true,

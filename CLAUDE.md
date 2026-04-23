@@ -76,6 +76,15 @@ Claude Code: leggilo per intero prima di fare modifiche.
   usa `DO $$ BEGIN … EXCEPTION WHEN duplicate_object` e guardie su
   `information_schema.columns` per le `alter column`, così è ri-eseguibile
   senza errori)
+- **Nota su fatturazione Anthropic col web_search**: ogni invocazione del
+  tool viene contata come un turno separato nella dashboard Anthropic,
+  quindi una sola analisi progetto può generare 3-5 righe con lo stesso
+  Request ID. L'input cresce a ogni turno perché il modello rielabora il
+  contesto + i risultati precedenti; solo l'ultimo turno contiene
+  l'output completo (≈2-3k token). Costo tipico per analisi progetto:
+  $0.30-0.50 (vs $0.15-0.20 per un'IG senza search). `max_uses` è
+  configurato a 5 in `project-analysis-prompt.ts` — abbassalo a 3 se
+  vuoi tagliare i costi del ~30%.
 
 ### Split landing pubbliche ↔ analisi in-app
 - I due lead magnet hanno ora **due audience separate** con due flussi:

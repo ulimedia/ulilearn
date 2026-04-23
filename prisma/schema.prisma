@@ -138,6 +138,13 @@ enum LeadStatus {
   @@map("lead_status")
 }
 
+enum LeadSource {
+  lead_magnet_ig
+  lead_magnet_project
+
+  @@map("lead_source")
+}
+
 // ============================================================================
 // Users & Auth
 // ============================================================================
@@ -529,9 +536,12 @@ model AuditLog {
 model Lead {
   id               String     @id @default(uuid()) @db.Uuid
   email            String
-  instagramUrl     String     @map("instagram_url")
+  instagramUrl     String?    @map("instagram_url")
   instagramHandle  String?    @map("instagram_handle")
-  source           String     @default("lead_magnet_ig")
+  /// Brief testuale dell'idea di progetto fotografico (lead_magnet_project).
+  /// Null per i lead di tipo lead_magnet_ig.
+  projectBrief     String?    @map("project_brief")
+  source           LeadSource @default(lead_magnet_ig)
   status           LeadStatus @default(new)
   marketingConsent Boolean    @default(true) @map("marketing_consent")
 

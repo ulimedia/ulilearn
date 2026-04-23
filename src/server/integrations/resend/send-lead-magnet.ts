@@ -3,21 +3,44 @@ import { getResendClient } from "./client";
 import { prisma } from "@/server/db/client";
 import { env } from "@/lib/env";
 import { LeadMagnetReport } from "@/emails/LeadMagnetReport";
-import type { LeadAnalysis } from "@/server/integrations/anthropic/schema";
+import { LeadMagnetProjectReport } from "@/emails/LeadMagnetProjectReport";
+import type {
+  LeadAnalysis,
+  ProjectAnalysis,
+} from "@/server/integrations/anthropic/schema";
 
-export async function sendLeadMagnetReport(params: {
-  leadId: string;
-  to: string;
-  analysis: LeadAnalysis;
-}) {
+type SendArgs =
+  | {
+      leadId: string;
+      to: string;
+      source: "lead_magnet_ig";
+      analysis: LeadAnalysis;
+    }
+  | {
+      leadId: string;
+      to: string;
+      source: "lead_magnet_project";
+      analysis: ProjectAnalysis;
+    };
+
+export async function sendLeadMagnetReport(params: SendArgs) {
+  const campaign =
+    params.source === "lead_magnet_project" ? "analizza_progetto" : "scopri_autori";
+  const templateKey =
+    params.source === "lead_magnet_project"
+      ? "lead_magnet_project_report"
+      : "lead_magnet_report";
+
   const ctaUrl = withUtm(
     env.LEAD_MAGNET_KAJABI_CTA_URL ??
       "https://ulilearn.academy/catalogo/abbonamento/ulilearn-plus/",
-    { source: "lead_magnet", medium: "email", campaign: "scopri_autori" },
+    { source: "lead_magnet", medium: "email", campaign },
   );
 
   const html = await render(
-    LeadMagnetReport({ analysis: params.analysis, ctaUrl }),
+    params.source === "lead_magnet_project"
+      ? LeadMagnetProjectReport({ analysis: params.analysis, ctaUrl })
+      : LeadMagnetReport({ analysis: params.analysis, ctaUrl }),
   );
 
   try {
@@ -27,7 +50,7 @@ export async function sendLeadMagnetReport(params: {
       subject: `${params.analysis.headline} — la tua analisi Ulilearn`,
       html,
       tags: [
-        { name: "template", value: "lead_magnet_report" },
+        { name: "template", value: templateKey },
         { name: "lead_id", value: params.leadId },
       ],
     });
@@ -46,7 +69,7 @@ export async function sendLeadMagnetReport(params: {
     await prisma.emailEvent.create({
       data: {
         email: params.to,
-        templateKey: "lead_magnet_report",
+        templateKey,
         providerMessageId: messageId,
         status: "sent",
         metadata: { leadId: params.leadId },
@@ -57,7 +80,7 @@ export async function sendLeadMagnetReport(params: {
     await prisma.emailEvent.create({
       data: {
         email: params.to,
-        templateKey: "lead_magnet_report",
+        templateKey,
         status: "failed",
         metadata: { leadId: params.leadId, error: msg },
       },

@@ -21,10 +21,20 @@ export const CLAUDE_SONNET_PRICING = {
   outputPerMillion: 15,
 } as const;
 
-export function estimateCostCents(tokensIn: number, tokensOut: number) {
+// Anthropic web search: $10 / 1000 requests → 1 cent per request.
+export const WEB_SEARCH_COST_CENTS_PER_REQUEST = 1;
+
+export function estimateCostCents(
+  tokensIn: number,
+  tokensOut: number,
+  webSearchRequests = 0,
+) {
   const dollars =
     (tokensIn * CLAUDE_SONNET_PRICING.inputPerMillion +
       tokensOut * CLAUDE_SONNET_PRICING.outputPerMillion) /
     1_000_000;
-  return Math.ceil(dollars * 100);
+  return (
+    Math.ceil(dollars * 100) +
+    webSearchRequests * WEB_SEARCH_COST_CENTS_PER_REQUEST
+  );
 }

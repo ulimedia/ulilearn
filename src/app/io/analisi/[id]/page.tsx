@@ -3,8 +3,12 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/require-user";
 import { prisma } from "@/server/db/client";
-import { leadAnalysisSchema } from "@/server/integrations/anthropic/schema";
+import {
+  leadAnalysisSchema,
+  projectAnalysisSchema,
+} from "@/server/integrations/anthropic/schema";
 import { AnalysisView } from "@/app/(marketing)/scopri-autori/AnalysisView";
+import { ProjectAnalysisView } from "@/app/(marketing)/analizza-progetto/AnalysisView";
 import { ROUTES } from "@/lib/constants";
 
 export const metadata: Metadata = {
@@ -28,18 +32,19 @@ export default async function AnalysisDetailPage({
     select: {
       convertedUserId: true,
       email: true,
+      source: true,
+      projectBrief: true,
       analysisJson: true,
       scrapedImages: true,
     },
   });
 
-  // Must exist, belong to this user, and have a parsed analysis.
   if (!lead || lead.convertedUserId !== profile.id || !lead.analysisJson) {
     notFound();
   }
 
-  const parsed = leadAnalysisSchema.safeParse(lead.analysisJson);
-  if (!parsed.success) notFound();
+  const body = renderBody(lead);
+  if (!body) notFound();
 
   return (
     <section>
@@ -49,13 +54,30 @@ export default async function AnalysisDetailPage({
       >
         ← Tutte le analisi
       </Link>
-      <div className="mt-6">
-        <AnalysisView
-          analysis={parsed.data}
-          email={lead.email}
-          images={lead.scrapedImages}
-        />
-      </div>
+      <div className="mt-6">{body}</div>
     </section>
+  );
+}
+
+function renderBody(lead: {
+  email: string;
+  source: "lead_magnet_ig" | "lead_magnet_project";
+  projectBrief: string | null;
+  analysisJson: unknown;
+  scrapedImages: string[];
+}) {
+  if (lead.source === "lead_magnet_project") {
+    const parsed = projectAnalysisSchema.safeParse(lead.analysisJson);
+    if (!parsed.success) return null;
+    return <ProjectAnalysisView analysis={parsed.data} brief={lead.projectBrief} />;
+  }
+  const parsed = leadAnalysisSchema.safeParse(lead.analysisJson);
+  if (!parsed.success) return null;
+  return (
+    <AnalysisView
+      analysis={parsed.data}
+      email={lead.email}
+      images={lead.scrapedImages}
+    />
   );
 }

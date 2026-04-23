@@ -102,4 +102,5 @@ export const ROUTES = {
     audit: "/admin/audit",
   },
   scopriAutori: "/scopri-autori",
+  analizzaProgetto: "/analizza-progetto",
 } as const;

@@ -80,6 +80,9 @@ export const ROUTES = {
   account: {
     home: "/io",
     analisi: "/io/analisi",
+    analizza: "/io/analizza",
+    analizzaProfilo: "/io/analizza/profilo",
+    analizzaProgetto: "/io/analizza/progetto",
     subscription: "/io/abbonamento",
     profile: "/io/profilo",
     saved: "/io/salvati",

@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import type { LeadSource } from "@prisma/client";
 import { z } from "zod";
-import { adminProcedure, createTRPCRouter, publicProcedure } from "../init";
+import {
+  adminProcedure,
+  createTRPCRouter,
+  protectedProcedure,
+  publicProcedure,
+} from "../init";
 import type { TRPCContext } from "../context";
 import {
   analyzeInstagramProfile,
@@ -581,6 +586,304 @@ export const leadMagnetRouter = createTRPCRouter({
         }).catch(() => {});
 
         return { leadId: lead.id, redirectUrl };
+      },
+    ),
+
+  /**
+   * Authenticated variant of `analyze`. Run from inside the dashboard:
+   * the user is already logged in, so no Turnstile, no magic link, no
+   * passwordless account creation. The lead is attached to the current
+   * user immediately (status=analyzed, convertedUserId set).
+   *
+   * The public `analyze` remains for acquisition flows (external traffic
+   * that doesn't yet have an account).
+   */
+  analyzeAuthed: protectedProcedure
+    .input(
+      z.object({
+        instagramUrl: z
+          .string()
+          .trim()
+          .regex(
+            /^https?:\/\/(?:www\.)?instagram\.com\/[A-Za-z0-9._]{1,30}\/?(\?.*)?$/,
+            {
+              message:
+                "Inserisci un URL Instagram valido, es. https://www.instagram.com/tuo_handle",
+            },
+          ),
+      }),
+    )
+    .mutation(
+      async ({ ctx, input }): Promise<{ leadId: string }> => {
+        const userEmail = ctx.user.email;
+        if (!userEmail) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Il tuo account non ha un'email associata.",
+          });
+        }
+        const emailLower = userEmail.toLowerCase();
+
+        await checkMonthlyLimit(ctx.db, emailLower, "lead_magnet_ig");
+
+        const spent = await getWeeklySpendCents();
+        if (spent > (env.ANTHROPIC_MAX_COST_CENTS_PER_WEEK ?? 5000)) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message:
+              "Stiamo ricevendo molte richieste questa settimana. Riprova tra qualche giorno.",
+          });
+        }
+
+        const handle = extractInstagramHandle(input.instagramUrl);
+        const lead = await ctx.db.lead.create({
+          data: {
+            email: emailLower,
+            instagramUrl: input.instagramUrl,
+            instagramHandle: handle,
+            source: "lead_magnet_ig",
+            marketingConsent: false,
+            convertedUserId: ctx.user.id,
+            convertedAt: new Date(),
+            turnstileVerified: true,
+          },
+          select: { id: true },
+        });
+
+        let scraped: ScrapedInstagramProfile | null = null;
+        if (handle) {
+          try {
+            scraped = await scrapeInstagramProfile(handle);
+          } catch (e) {
+            if (e instanceof ApifyScrapeError) {
+              console.warn(
+                `[leadMagnet:authed] scrape fallback (${e.code}): ${e.message}`,
+              );
+            } else {
+              console.warn("[leadMagnet:authed] scrape unknown error", e);
+            }
+            scraped = null;
+          }
+        }
+
+        let downloadedImages: DownloadedImages | undefined;
+        if (scraped && scraped.latestPosts.length > 0) {
+          downloadedImages = await downloadInstagramImages(scraped.latestPosts);
+        }
+
+        let result;
+        try {
+          result = await analyzeInstagramProfile({
+            email: emailLower,
+            instagramUrl: input.instagramUrl,
+            instagramHandle: handle,
+            scraped,
+            preloadedImages: downloadedImages,
+          });
+        } catch (e) {
+          if (e instanceof LeadAnalysisError && e.code === "invalid_output") {
+            try {
+              result = await analyzeInstagramProfile({
+                email: emailLower,
+                instagramUrl: input.instagramUrl,
+                instagramHandle: handle,
+                scraped,
+                preloadedImages: downloadedImages,
+              });
+            } catch (e2) {
+              console.error("[leadMagnet:authed] Claude retry failed", e2);
+              await ctx.db.lead.update({
+                where: { id: lead.id },
+                data: {
+                  analysisError:
+                    e2 instanceof Error ? e2.message.slice(0, 500) : "retry failed",
+                },
+              });
+              throw new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: `[claude_retry_failed] ${
+                  e2 instanceof Error ? e2.message.slice(0, 200) : "unknown"
+                }`,
+              });
+            }
+          } else {
+            console.error("[leadMagnet:authed] Claude call failed", e);
+            const errMsg = e instanceof Error ? e.message : "api error";
+            await ctx.db.lead.update({
+              where: { id: lead.id },
+              data: { analysisError: errMsg.slice(0, 500) },
+            });
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `[claude_error] ${errMsg.slice(0, 200)}`,
+            });
+          }
+        }
+
+        const uploadPromise = downloadedImages
+          ? uploadLeadImages({ leadId: lead.id, images: downloadedImages })
+          : Promise.resolve<Array<string | null>>([]);
+
+        await ctx.db.lead.update({
+          where: { id: lead.id },
+          data: {
+            status: "analyzed",
+            analysisJson: result.analysis as unknown as object,
+            analysisModel: result.model,
+            analysisTokensIn: result.tokensIn,
+            analysisTokensOut: result.tokensOut,
+            analysisCostCents: result.costCents,
+            analysisError: null,
+          },
+        });
+        await addBudgetSpend(result.costCents);
+
+        try {
+          const uploaded = await uploadPromise;
+          const publicUrls = uploaded.filter((u): u is string => !!u);
+          if (publicUrls.length > 0) {
+            await ctx.db.lead.update({
+              where: { id: lead.id },
+              data: { scrapedImages: publicUrls },
+            });
+          }
+        } catch (e) {
+          console.warn(
+            "[leadMagnet:authed] image upload/save failed",
+            e instanceof Error ? e.message : e,
+          );
+        }
+
+        await trackEvent({
+          userId: ctx.user.id,
+          name: "lead_magnet_submitted",
+          properties: {
+            leadId: lead.id,
+            handle,
+            costCents: result.costCents,
+            usedVision: result.usedVision,
+            authed: true,
+          },
+        }).catch(() => {});
+
+        return { leadId: lead.id };
+      },
+    ),
+
+  /**
+   * Authenticated variant of `analyzeProject`. Same contract as
+   * `analyzeAuthed` but for the project-brief lead magnet.
+   */
+  analyzeProjectAuthed: protectedProcedure
+    .input(
+      z.object({
+        projectBrief: z.string().trim().min(120).max(4000),
+      }),
+    )
+    .mutation(
+      async ({ ctx, input }): Promise<{ leadId: string }> => {
+        const userEmail = ctx.user.email;
+        if (!userEmail) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Il tuo account non ha un'email associata.",
+          });
+        }
+        const emailLower = userEmail.toLowerCase();
+
+        await checkMonthlyLimit(ctx.db, emailLower, "lead_magnet_project");
+
+        const spent = await getWeeklySpendCents();
+        if (spent > (env.ANTHROPIC_MAX_COST_CENTS_PER_WEEK ?? 5000)) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message:
+              "Stiamo ricevendo molte richieste questa settimana. Riprova tra qualche giorno.",
+          });
+        }
+
+        const lead = await ctx.db.lead.create({
+          data: {
+            email: emailLower,
+            source: "lead_magnet_project",
+            projectBrief: input.projectBrief,
+            marketingConsent: false,
+            convertedUserId: ctx.user.id,
+            convertedAt: new Date(),
+            turnstileVerified: true,
+          },
+          select: { id: true },
+        });
+
+        let result;
+        try {
+          result = await analyzeProjectBrief({
+            email: emailLower,
+            projectBrief: input.projectBrief,
+          });
+        } catch (e) {
+          if (e instanceof ProjectAnalysisError && e.code === "invalid_output") {
+            try {
+              result = await analyzeProjectBrief({
+                email: emailLower,
+                projectBrief: input.projectBrief,
+              });
+            } catch (e2) {
+              console.error("[leadMagnet:project:authed] Claude retry failed", e2);
+              await ctx.db.lead.update({
+                where: { id: lead.id },
+                data: {
+                  analysisError:
+                    e2 instanceof Error ? e2.message.slice(0, 500) : "retry failed",
+                },
+              });
+              throw new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: `[claude_retry_failed] ${
+                  e2 instanceof Error ? e2.message.slice(0, 200) : "unknown"
+                }`,
+              });
+            }
+          } else {
+            console.error("[leadMagnet:project:authed] Claude call failed", e);
+            const errMsg = e instanceof Error ? e.message : "api error";
+            await ctx.db.lead.update({
+              where: { id: lead.id },
+              data: { analysisError: errMsg.slice(0, 500) },
+            });
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `[claude_error] ${errMsg.slice(0, 200)}`,
+            });
+          }
+        }
+
+        await ctx.db.lead.update({
+          where: { id: lead.id },
+          data: {
+            status: "analyzed",
+            analysisJson: result.analysis as unknown as object,
+            analysisModel: result.model,
+            analysisTokensIn: result.tokensIn,
+            analysisTokensOut: result.tokensOut,
+            analysisCostCents: result.costCents,
+            analysisError: null,
+          },
+        });
+        await addBudgetSpend(result.costCents);
+
+        await trackEvent({
+          userId: ctx.user.id,
+          name: "lead_magnet_project_analyzed",
+          properties: {
+            leadId: lead.id,
+            costCents: result.costCents,
+            webSearches: result.webSearches,
+            authed: true,
+          },
+        }).catch(() => {});
+
+        return { leadId: lead.id };
       },
     ),
 

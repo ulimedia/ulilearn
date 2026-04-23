@@ -7,8 +7,8 @@ import {
   leadAnalysisSchema,
   projectAnalysisSchema,
 } from "@/server/integrations/anthropic/schema";
-import { AnalysisView } from "@/app/(marketing)/scopri-autori/AnalysisView";
-import { ProjectAnalysisView } from "@/app/(marketing)/analizza-progetto/AnalysisView";
+import { AnalysisView } from "@/app/(landing)/scopri-autori/AnalysisView";
+import { ProjectAnalysisView } from "@/app/(landing)/analizza-progetto/AnalysisView";
 import { ROUTES } from "@/lib/constants";
 
 export const metadata: Metadata = {

@@ -23,10 +23,12 @@ Claude Code: leggilo per intero prima di fare modifiche.
 ## Repo
 
 - GitHub: `ulimedia/ulilearn`
-- Branch lavoro Claude: `claude/analyze-prd-app-structure-rmHC9`
+- Branch lavoro Claude: ogni sessione ne usa uno nuovo (tipo
+  `claude/<slug>`). Il PRD e questa memoria stanno su `main`.
 - **Production branch su Vercel: `main`**
-- Workflow: committa su feature branch → merge --no-ff in main → push main
-- Vercel redeploya automaticamente da main
+- Workflow: committa su feature branch → apri PR su GitHub → merge su `main`
+  (il merge è un'azione di produzione: conferma sempre con l'utente)
+- Vercel redeploya automaticamente da `main`
 - URL live: `https://ulilearn.vercel.app`
 - PRD originale: `PRD_Ulilearn_App.md` su main (fonte di verità per feature)
 
@@ -41,17 +43,39 @@ Claude Code: leggilo per intero prima di fare modifiche.
 - Route protection middleware su `/io /watch /checkout /admin`
 - Callback auth che gestisce sia PKCE che implicit flow
 
-### Lead Magnet "Scopri autori"
+### Lead Magnet #1 "Scopri autori" (Instagram)
 - `/scopri-autori` landing pubblica
 - Modello `Lead` separato (non `users`) + trigger auto-link su signup
 - Apify scraping profilo IG → download immagini → Claude Vision → analisi
-  strutturata in JSON validata con zod
+  strutturata in JSON validata con zod (`leadAnalysisSchema`)
 - Foto caricate su bucket `lead-images` di Supabase (URL permanenti)
 - Dopo submit: crea auth.users passwordless + magic link → redirect a
   `/io/analisi/[id]` già loggato
-- Limite **1 analisi/mese per email**
+- Limite **1 analisi/mese per email, per lead magnet** (indipendenti)
 - Sidebar `/io` con voce "Analizza" come prima voce
 - `/io/profilo` ha form "Imposta password" (user_metadata.password_set)
+
+### Lead Magnet #2 "Analizza progetto" (brief testuale)
+- `/analizza-progetto` landing pubblica (stesso pattern di `/scopri-autori`)
+- Input: descrizione testuale libera 120-4000 char dell'idea di progetto
+- Nessuno scraping, nessun upload: solo testo
+- Claude Sonnet 4.6 con tool nativo **`web_search`** di Anthropic per
+  verificare i progetti/autori simili citati (max 5 ricerche per analisi,
+  ~1¢ ciascuna, sommate al costo token in `estimateCostCents`)
+- Output `projectAnalysisSchema`: headline, reading[], strengths[],
+  risks[], nextSteps[], similarProjects[] (con url fonte), closing, caveat
+- Stessi rate limiter e anti-abuse del primo magnet ma con prefix Redis
+  separati (`rl:lead:project:*`) — limiti indipendenti
+- `LeadSource` enum Prisma promuove `Lead.source` da string a enum typed
+  (`lead_magnet_ig` | `lead_magnet_project`); `instagram_url` rilassato a
+  nullable; nuova colonna `project_brief text`
+- `/io/analisi/[id]` è polimorfico: sceglie `AnalysisView` (IG) vs
+  `ProjectAnalysisView` (progetto) in base a `lead.source`
+- Admin `/admin/lead-magnet` ha tab filter `?source=` + colonna Tipo
+- Migration: `supabase/migrations/0007_lead_source_enum.sql` (idempotente:
+  usa `DO $$ BEGIN … EXCEPTION WHEN duplicate_object` e guardie su
+  `information_schema.columns` per le `alter column`, così è ri-eseguibile
+  senza errori)
 
 ### Blocco 1 — Content CMS
 - Schema esteso: `ContentType` ora ha 5 valori (+masterclass, +workshop);
@@ -79,7 +103,8 @@ Claude Code: leggilo per intero prima di fare modifiche.
 - `/autori` + `/autori/[slug]` con bio + contenuti
 - `/ricerca` con ILIKE + search box client
 - `/sitemap.xml` dinamica, `/robots.txt`, OG metadata per contenuto
-- Cron Vercel `/api/cron/publish-scheduled` ogni 10 min
+- Route `/api/cron/publish-scheduled` **presente nel codice ma senza
+  cron schedule attivo** (vedi sezione "Limiti Vercel Hobby" sotto)
 - ISR `revalidate=600` sulle pagine catalogo
 
 ### Infrastruttura ausiliaria
@@ -198,6 +223,11 @@ pnpm lint
 ## Setup operativo dell'utente (cose fatte)
 
 - Supabase progetto: `sfuukiuaqltqmsqixkbh.supabase.co`, region EU Frankfurt
+- **Un solo database Supabase per tutti gli ambienti Vercel** (le env
+  `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`, ecc. sono
+  settate come "All Environments" — stesso valore per Production, Preview
+  e Development). Conseguenza: ogni SQL migration va applicata **una
+  volta sola** via Supabase SQL Editor e vale per tutti.
 - Anthropic credito caricato
 - Apify token configurato su Vercel
 - Turnstile **disattivato** (env mancante → verifyTurnstile ritorna true
@@ -207,15 +237,50 @@ pnpm lint
 - User admin: `hello@alessandropiazza.it` (da creare manualmente via
   Supabase UI + SQL — istruzioni nel chat storico)
 
+## Limiti del piano Vercel Hobby (gotcha importanti)
+
+- **Cron minimo: daily**. Schedules sub-giornaliere (`*/10 * * * *` ecc.)
+  fanno **fallire ogni deploy** (preview + prod) con l'errore "Hobby
+  accounts are limited to daily cron jobs". Di conseguenza `vercel.json`
+  oggi NON contiene il blocco `crons`. Se in futuro servirà lo scheduled
+  publishing: scegliere un `0 2 * * *` (giornaliero) oppure upgrade a Pro.
+- **Deployment Protection = Standard** attiva → tutti i preview URL
+  richiedono login Vercel. I test end-to-end dal preview funzionano solo
+  se sei loggato nell'account Vercel che ha creato il progetto.
+- **Magic link Supabase ignora l'URL del preview**: `generateMagicLinkUrl`
+  costruisce il callback usando `env.NEXT_PUBLIC_APP_URL`, che è settato
+  come "All Environments" = `https://ulilearn.vercel.app` (produzione).
+  Conseguenza pratica: quando un utente riempie un form lead magnet sul
+  preview di un branch, il magic link lo reindirizza **a produzione**,
+  non al preview. Feature che attraversano il flow del magic link
+  possono essere collaudate davvero solo **dopo il merge su `main`**.
+  Per testare un preview senza merge, o duplica `NEXT_PUBLIC_APP_URL`
+  per-environment (Preview = URL del preview), oppure accetta che il
+  form funzioni ma il redirect finale vada in prod.
+- **Cron secret**: se si riattiva un cron, ricordare `CRON_SECRET` env
+  (la route già controlla `Authorization: Bearer $CRON_SECRET`).
+
 ## Workflow raccomandato per prossimi blocchi
 
-1. Leggi questo file
+1. Leggi questo file per intero (è la memoria — non perdere tempo a
+   chiedere cose già scritte qui)
 2. Leggi il PRD se servono dettagli di business
 3. Usa AskUserQuestion (max 3-4 domande) per chiarire ambiguità prima di
-   scrivere codice
-4. Lavora sul branch `claude/analyze-prd-app-structure-rmHC9`
-5. Build locale verde prima di commit
-6. Commit con Conventional Commits + merge --no-ff su main + push main
-7. Ricorda all'utente di applicare eventuali SQL migrations manualmente
-8. Per feature che richiedono nuove env vars, elenca cosa aggiungere
-   su Vercel prima del redeploy
+   scrivere codice — l'utente **non è tecnico**, spiega in italiano
+   semplice ogni azione che implica DB / deploy / prod
+4. Lavora sul branch di sessione (ogni sessione ne ha uno assegnato dal
+   wrapper). Mai committare direttamente su `main`.
+5. `pnpm typecheck` + `pnpm lint` verdi prima di commit
+6. Conventional Commits (`feat(scope):`, `fix:`, `chore:`)
+7. Apri PR su GitHub e conferma col pollice dell'utente prima di mergiare
+8. **Sempre ricorda all'utente le SQL migrations da applicare manualmente**
+   (singolo DB: una sola esecuzione via Supabase SQL Editor). Scrivi
+   migrations idempotenti: `CREATE TYPE` + exception, `IF NOT EXISTS`
+   per column/index, `DO $$ BEGIN … END $$` con guardie su
+   `information_schema` per `ALTER COLUMN` non ripetibili.
+9. Per nuove env vars, elenca nella PR description cosa aggiungere su
+   Vercel (e avverti l'utente che sono "All Environments" di default
+   se non specifica diversamente)
+10. Per feature che passano dal magic link Supabase, considera il gotcha
+    su `NEXT_PUBLIC_APP_URL` (vedi "Limiti Vercel Hobby" sopra): il test
+    vero richiede il merge su `main`

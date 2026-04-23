@@ -77,6 +77,42 @@ Claude Code: leggilo per intero prima di fare modifiche.
   `information_schema.columns` per le `alter column`, così è ri-eseguibile
   senza errori)
 
+### Split landing pubbliche ↔ analisi in-app
+- I due lead magnet hanno ora **due audience separate** con due flussi:
+  - **Pubblico (traffico esterno)**: `/scopri-autori` e `/analizza-progetto`
+    stanno nel route group `src/app/(landing)/` con layout minimale (solo
+    logo + "Ho già un account", niente Header/Footer). URL invariati —
+    i route group di Next.js non impattano sui path, campagne esterne
+    sicure. Flusso completo con email + Turnstile + `createPasswordlessUser`
+    + magic link.
+  - **In-app (utente loggato)**: `/io/analizza` hub + `/io/analizza/profilo`
+    + `/io/analizza/progetto`. Form snelli senza email né Turnstile né
+    magic link. Due nuove procedure `protectedProcedure`
+    (`leadMagnet.analyzeAuthed`, `leadMagnet.analyzeProjectAuthed`) che
+    riusano gli stessi helper Claude + `checkMonthlyLimit`, ma settano
+    `convertedUserId` + `convertedAt` direttamente alla creazione del lead.
+- Il bottone "Nuova analisi" in `/io/analisi` punta ora a `/io/analizza/*`.
+  **Regola**: i link pubblici `/scopri-autori` e `/analizza-progetto`
+  sono solo per chi NON ha ancora un account — per gli utenti loggati
+  verrebbero rifiutati con `[email_exists]` dal backend.
+
+### Auth: implicit flow per il browser client
+- `createSupabaseBrowserClient` in `src/lib/supabase/client.ts` è
+  configurato con `{ auth: { flowType: "implicit" } }`.
+- Motivo: il default PKCE di `@supabase/ssr` mette un cookie
+  `code_verifier` nel browser al click di "Ricevi magic link" e lo
+  esige al click sul link dall'email. Se l'utente apriva la mail da
+  cellulare/altro browser → `"PKCE code verifier not found in storage"`.
+- Con implicit flow i token tornano nel fragment URL
+  (`#access_token=...&refresh_token=...`). La callback
+  `src/app/auth/callback/page.tsx` già lo gestisce (chiama `setSession`
+  a mano perché `@supabase/ssr` non auto-parsa l'hash).
+- Il lead magnet usa `admin.generateLink` che è sempre stato implicit;
+  adesso login e lead magnet si comportano uguale.
+- Trade-off: implicit espone i token nel fragment URL, che però
+  **non** arriva al server (client-only). Se in futuro aggiungiamo
+  OAuth Google valuteremo se tornare a PKCE solo per quel flow.
+
 ### Blocco 1 — Content CMS
 - Schema esteso: `ContentType` ora ha 5 valori (+masterclass, +workshop);
   `ContentFormat` (on_demand/live_online/live_hybrid/live_in_person);
@@ -163,11 +199,22 @@ Claude Code: leggilo per intero prima di fare modifiche.
    `subscriberPriceCentsOverride` opzionale per casi speciali
 4. **Client tRPC lazy**: `getAnthropicClient()`, `getResendClient()`, e
    `getSupabaseAdmin()` instanziati on-demand — build non fallisce senza key
-5. **Auth callback** gestisce PKCE (?code=) e implicit flow
-   (#access_token=...). `@supabase/ssr` **non auto-parsa** l'hash — chiamiamo
-   `setSession` esplicitamente in `src/app/auth/callback/page.tsx`
+5. **Auth callback + flowType implicit**: il browser client usa
+   `{ auth: { flowType: "implicit" } }` così magic link e OAuth tornano
+   con token nel hash URL invece che `?code=` PKCE. Motivo: PKCE pretende
+   un cookie code_verifier nello stesso browser che ha richiesto il link
+   → si rompe se l'utente apre l'email su un altro device. La callback
+   `src/app/auth/callback/page.tsx` gestisce anche il caso PKCE per
+   retrocompatibilità (via `exchangeCodeForSession`). `@supabase/ssr`
+   **non auto-parsa** l'hash — chiamiamo `setSession` esplicitamente.
 6. **Claude image input** deve essere base64 (Instagram robots.txt blocca
    URL fetch lato Anthropic). Scarichiamo lato nostro con UA browser
+7. **Separazione landing pubblica ↔ azione in-app** per i lead magnet:
+   le landing (`/scopri-autori`, `/analizza-progetto`) vivono nel
+   route group `(landing)` senza Header/Footer e sono il punto d'ingresso
+   per visitatori non loggati. Gli utenti autenticati fanno nuove analisi
+   da `/io/analizza/*` con tRPC `protectedProcedure` → nessuna email,
+   nessun Turnstile, nessun magic link.
 
 ## Convenzioni
 

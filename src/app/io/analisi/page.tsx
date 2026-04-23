@@ -3,7 +3,6 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth/require-user";
 import { prisma } from "@/server/db/client";
 import { formatDateIT } from "@/lib/utils";
-import { ROUTES } from "@/lib/constants";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -52,7 +51,7 @@ export default async function AnalisiListPage() {
         </div>
         <div className="flex flex-wrap gap-3">
           <NewAnalysisButton
-            href={ROUTES.scopriAutori}
+            href="/io/analizza/profilo"
             available={igAvailable}
             nextAvailable={
               lastIg ? new Date(lastIg.createdAt.getTime() + THIRTY_DAYS_MS) : null
@@ -61,7 +60,7 @@ export default async function AnalisiListPage() {
             Analizza il profilo Instagram
           </NewAnalysisButton>
           <NewAnalysisButton
-            href={ROUTES.analizzaProgetto}
+            href="/io/analizza/progetto"
             available={projectAvailable}
             nextAvailable={
               lastProject
@@ -78,10 +77,10 @@ export default async function AnalisiListPage() {
         <div className="mt-10">
           <EmptyState
             title="Nessuna analisi ancora"
-            description="Scegli il lead magnet che preferisci per iniziare."
+            description="Scegli il tipo di analisi da cui partire."
             action={
               <Link
-                href={ROUTES.scopriAutori}
+                href="/io/analizza"
                 className={cn(buttonVariants({ size: "md" }))}
               >
                 Inizia

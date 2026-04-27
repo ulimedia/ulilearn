@@ -200,10 +200,14 @@ model Plan {
   id                        String          @id @default(uuid()) @db.Uuid
   slug                      String          @unique
   name                      String
+  description               String?
+  featureBullets            String[]        @default([]) @map("feature_bullets")
   priceCents                Int             @map("price_cents")
   currency                  String          @default("EUR") @db.Char(3)
   billingInterval           BillingInterval @map("billing_interval")
+  sortOrder                 Int             @default(0) @map("sort_order")
   isActive                  Boolean         @default(true) @map("is_active")
+  stripeProductId           String?         @map("stripe_product_id")
   stripePriceId             String?         @map("stripe_price_id")
   paypalPlanId              String?         @map("paypal_plan_id")
   subscriberDiscountPercent Int             @default(20) @map("subscriber_discount_percent")
@@ -213,6 +217,7 @@ model Plan {
 
   subscriptions Subscription[]
 
+  @@index([isActive, sortOrder])
   @@map("plans")
 }
 

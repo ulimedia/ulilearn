@@ -100,6 +100,8 @@ export const ROUTES = {
     users: "/admin/utenti",
     coupons: "/admin/coupon",
     plans: "/admin/piani",
+    planNew: "/admin/piani/nuovo",
+    planEdit: (id: string) => `/admin/piani/${id}`,
     email: "/admin/email",
     leadMagnet: "/admin/lead-magnet",
     audit: "/admin/audit",

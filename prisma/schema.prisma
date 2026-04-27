@@ -216,9 +216,35 @@ model Plan {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   subscriptions Subscription[]
+  contents      PlanContent[]
 
   @@index([isActive, sortOrder])
   @@map("plans")
+}
+
+/// Many-to-many between Plan and ContentItem: explicit list of which
+/// on-demand contents are included in each subscription plan.
+model PlanContent {
+  planId        String   @map("plan_id") @db.Uuid
+  contentItemId String   @map("content_item_id") @db.Uuid
+  addedAt       DateTime @default(now()) @map("added_at") @db.Timestamptz
+
+  plan        Plan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  contentItem ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  @@id([planId, contentItemId])
+  @@index([contentItemId])
+  @@map("plan_contents")
+}
+
+/// Site-wide settings (singleton: only one row, id=1).
+model SiteSettings {
+  id                        Int      @id @default(1)
+  subscriberDiscountPercent Int      @default(20) @map("subscriber_discount_percent")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("site_settings")
 }
 
 model Subscription {
@@ -370,6 +396,7 @@ model ContentItem {
   viewingProgress ViewingProgress[]
   savedBy         SavedItem[]
   purchases       ContentPurchase[]
+  plans           PlanContent[]
 
   @@index([slug])
   @@index([status, publishedAt])

@@ -30,3 +30,32 @@ export async function userHasActiveSubscription(userId: string): Promise<boolean
   const sub = await getActiveSubscription(userId);
   return Boolean(sub);
 }
+
+/**
+ * Returns the set of contentItem IDs accessible to the user via any of their
+ * currently active subscriptions (i.e. the union of all PlanContent rows for
+ * plans the user is subscribed to). Returns an empty Set if no active sub.
+ */
+export async function getUserAccessibleContentIds(
+  userId: string,
+): Promise<Set<string>> {
+  const rows = await prisma.subscription.findMany({
+    where: {
+      userId,
+      status: { in: ACTIVE_STATUSES },
+      currentPeriodEnd: { gt: new Date() },
+    },
+    select: {
+      plan: {
+        select: {
+          contents: { select: { contentItemId: true } },
+        },
+      },
+    },
+  });
+  const ids = new Set<string>();
+  for (const row of rows) {
+    for (const c of row.plan.contents) ids.add(c.contentItemId);
+  }
+  return ids;
+}

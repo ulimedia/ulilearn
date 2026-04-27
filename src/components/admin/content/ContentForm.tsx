@@ -333,44 +333,47 @@ export function ContentForm({ initial }: { initial?: ContentFormInitial }) {
             checked={isPurchasable}
             onChange={setIsPurchasable}
             label="Acquistabile singolarmente"
-            description="Tipico per masterclass e workshop. Gli abbonati Plus avranno lo sconto fisso configurato in /admin/piani."
+            description="Tipico per masterclass e workshop. Gli abbonati Plus ottengono lo sconto globale configurato in Impostazioni."
           />
           {showPricing && (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-              <Field label="Prezzo standard (€)" required hint="Inserito in euro, salvato in centesimi.">
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={standalonePriceCents != null ? (standalonePriceCents / 100).toString() : ""}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value);
-                    setStandalonePriceCents(isNaN(v) ? null : Math.round(v * 100));
-                  }}
-                />
-              </Field>
-              <Field
-                label="Prezzo abbonato override (€)"
-                hint="Lascia vuoto per applicare lo sconto globale. Sovrascrive tutto se valorizzato."
-              >
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={
-                    subscriberPriceCentsOverride != null
-                      ? (subscriberPriceCentsOverride / 100).toString()
-                      : ""
-                  }
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value);
-                    setSubscriberPriceCentsOverride(
-                      isNaN(v) ? null : Math.round(v * 100),
-                    );
-                  }}
-                />
-              </Field>
-            </div>
+            <>
+              <SubscriberDiscountBanner />
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <Field label="Prezzo standard (€)" required hint="Inserito in euro, salvato in centesimi.">
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={standalonePriceCents != null ? (standalonePriceCents / 100).toString() : ""}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setStandalonePriceCents(isNaN(v) ? null : Math.round(v * 100));
+                    }}
+                  />
+                </Field>
+                <Field
+                  label="Prezzo personalizzato per abbonati (€)"
+                  hint="Lascia vuoto per applicare lo sconto globale. Se valorizzato sovrascrive lo sconto solo per questo contenuto."
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={
+                      subscriberPriceCentsOverride != null
+                        ? (subscriberPriceCentsOverride / 100).toString()
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setSubscriberPriceCentsOverride(
+                        isNaN(v) ? null : Math.round(v * 100),
+                      );
+                    }}
+                  />
+                </Field>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -515,6 +518,23 @@ function Field({
       </Label>
       {children}
       {hint && <p className="text-xs text-paper-400">{hint}</p>}
+    </div>
+  );
+}
+
+function SubscriberDiscountBanner() {
+  const { data } = trpc.settings.publicGet.useQuery();
+  return (
+    <div className="border border-paper-300/15 bg-paper-50/[0.02] p-4 text-xs text-paper-300">
+      Sconto abbonati globale corrente:{" "}
+      <strong className="text-paper-100">
+        {data ? `${data.subscriberDiscountPercent}%` : "—"}
+      </strong>
+      . Modificalo in{" "}
+      <Link href={ROUTES.admin.settings} className="text-accent hover:underline">
+        Impostazioni
+      </Link>
+      .
     </div>
   );
 }

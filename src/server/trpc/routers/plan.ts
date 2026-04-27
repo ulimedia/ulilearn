@@ -23,11 +23,10 @@ const planUpsertSchema = z.object({
   billingInterval: z.enum(["year", "month"]),
   sortOrder: z.number().int().min(0).max(999).default(0),
   isActive: z.boolean().default(true),
-  subscriberDiscountPercent: z.number().int().min(0).max(100).default(20),
 });
 
 export const planRouter = createTRPCRouter({
-  // Public: list active plans for /abbonati
+  // Public: list active plans for /abbonati (with content count)
   publicList: publicProcedure.query(async ({ ctx }) => {
     return ctx.db.plan.findMany({
       where: { isActive: true },
@@ -42,15 +41,16 @@ export const planRouter = createTRPCRouter({
         currency: true,
         billingInterval: true,
         stripePriceId: true,
-        subscriberDiscountPercent: true,
+        _count: { select: { contents: true } },
       },
     });
   }),
 
-  // Admin
+  // Admin: list all plans (with content count)
   list: adminProcedure.query(async ({ ctx }) => {
     return ctx.db.plan.findMany({
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      include: { _count: { select: { contents: true } } },
     });
   }),
 
@@ -77,36 +77,21 @@ export const planRouter = createTRPCRouter({
         });
       }
 
+      const data = {
+        slug: input.slug,
+        name: input.name,
+        description: input.description ?? null,
+        featureBullets: input.featureBullets,
+        priceCents: input.priceCents,
+        currency: input.currency,
+        billingInterval: input.billingInterval,
+        sortOrder: input.sortOrder,
+        isActive: input.isActive,
+      };
+
       const plan = input.id
-        ? await ctx.db.plan.update({
-            where: { id: input.id },
-            data: {
-              slug: input.slug,
-              name: input.name,
-              description: input.description ?? null,
-              featureBullets: input.featureBullets,
-              priceCents: input.priceCents,
-              currency: input.currency,
-              billingInterval: input.billingInterval,
-              sortOrder: input.sortOrder,
-              isActive: input.isActive,
-              subscriberDiscountPercent: input.subscriberDiscountPercent,
-            },
-          })
-        : await ctx.db.plan.create({
-            data: {
-              slug: input.slug,
-              name: input.name,
-              description: input.description ?? null,
-              featureBullets: input.featureBullets,
-              priceCents: input.priceCents,
-              currency: input.currency,
-              billingInterval: input.billingInterval,
-              sortOrder: input.sortOrder,
-              isActive: input.isActive,
-              subscriberDiscountPercent: input.subscriberDiscountPercent,
-            },
-          });
+        ? await ctx.db.plan.update({ where: { id: input.id }, data })
+        : await ctx.db.plan.create({ data });
 
       let syncWarning: string | null = null;
       if (isStripeConfigured()) {
@@ -171,6 +156,123 @@ export const planRouter = createTRPCRouter({
           // already inactive on Stripe — ignore
         }
       }
+      return { ok: true };
+    }),
+
+  /**
+   * Returns the explicit list of contents included in this plan.
+   * Used by the "Contenuti inclusi" picker in /admin/piani/[id].
+   */
+  getContents: adminProcedure
+    .input(z.object({ planId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db.planContent.findMany({
+        where: { planId: input.planId },
+        orderBy: { addedAt: "desc" },
+        select: {
+          contentItem: {
+            select: {
+              id: true,
+              title: true,
+              slug: true,
+              type: true,
+              status: true,
+              coverImageUrl: true,
+              author: { select: { fullName: true } },
+            },
+          },
+        },
+      });
+      return rows.map((r) => r.contentItem);
+    }),
+
+  /**
+   * Replace the entire set of included contents in one shot.
+   * Idempotent: deletes rows not in the new set, inserts the new ones.
+   */
+  setContents: adminProcedure
+    .input(
+      z.object({
+        planId: z.string().uuid(),
+        contentItemIds: z.array(z.string().uuid()).max(1000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const plan = await ctx.db.plan.findUnique({
+        where: { id: input.planId },
+        select: { id: true },
+      });
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const existing = await ctx.db.planContent.findMany({
+        where: { planId: input.planId },
+        select: { contentItemId: true },
+      });
+      const existingIds = new Set(existing.map((e) => e.contentItemId));
+      const desiredIds = new Set(input.contentItemIds);
+
+      const toAdd = [...desiredIds].filter((id) => !existingIds.has(id));
+      const toRemove = [...existingIds].filter((id) => !desiredIds.has(id));
+
+      await ctx.db.$transaction([
+        ...(toRemove.length > 0
+          ? [
+              ctx.db.planContent.deleteMany({
+                where: {
+                  planId: input.planId,
+                  contentItemId: { in: toRemove },
+                },
+              }),
+            ]
+          : []),
+        ...(toAdd.length > 0
+          ? [
+              ctx.db.planContent.createMany({
+                data: toAdd.map((cid) => ({
+                  planId: input.planId,
+                  contentItemId: cid,
+                })),
+                skipDuplicates: true,
+              }),
+            ]
+          : []),
+      ]);
+
+      return { added: toAdd.length, removed: toRemove.length };
+    }),
+
+  /** Add one content to a plan (used by "+ Aggiungi" actions). */
+  addContent: adminProcedure
+    .input(
+      z.object({
+        planId: z.string().uuid(),
+        contentItemId: z.string().uuid(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.planContent.upsert({
+        where: {
+          planId_contentItemId: {
+            planId: input.planId,
+            contentItemId: input.contentItemId,
+          },
+        },
+        create: input,
+        update: {},
+      });
+      return { ok: true };
+    }),
+
+  /** Remove one content from a plan. */
+  removeContent: adminProcedure
+    .input(
+      z.object({
+        planId: z.string().uuid(),
+        contentItemId: z.string().uuid(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.planContent.deleteMany({ where: input });
       return { ok: true };
     }),
 });

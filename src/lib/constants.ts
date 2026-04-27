@@ -102,6 +102,7 @@ export const ROUTES = {
     plans: "/admin/piani",
     planNew: "/admin/piani/nuovo",
     planEdit: (id: string) => `/admin/piani/${id}`,
+    settings: "/admin/impostazioni",
     email: "/admin/email",
     leadMagnet: "/admin/lead-magnet",
     audit: "/admin/audit",

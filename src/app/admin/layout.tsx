@@ -44,6 +44,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             Piani
           </Link>
           <Link
+            href={ROUTES.admin.settings}
+            className="rounded-sm px-2 py-2 text-paper-300 hover:bg-paper-50/5"
+          >
+            Impostazioni
+          </Link>
+          <Link
             href={ROUTES.admin.email}
             className="rounded-sm px-2 py-2 text-paper-300 hover:bg-paper-50/5"
           >

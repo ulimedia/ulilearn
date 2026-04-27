@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ROUTES } from "@/lib/constants";
 import { getApi } from "@/server/trpc/server";
 import { PlanForm } from "../PlanForm";
+import { PlanContentsPicker } from "./PlanContentsPicker";
 
 export const metadata: Metadata = { title: "Modifica piano", robots: { index: false } };
 export const dynamic = "force-dynamic";
@@ -48,9 +49,21 @@ export default async function AdminPlanEditPage({
             billingInterval: plan.billingInterval,
             sortOrder: plan.sortOrder,
             isActive: plan.isActive,
-            subscriberDiscountPercent: plan.subscriberDiscountPercent,
           }}
         />
+      </div>
+
+      <div className="mt-16 border-t border-paper-300/10 pt-10">
+        <h2 className="font-display text-2xl">Contenuti inclusi</h2>
+        <p className="mt-2 max-w-2xl text-sm text-paper-300">
+          Qui scegli quali contenuti del catalogo on-demand sono inclusi in
+          questo piano. I nuovi contenuti che crei vengono aggiunti
+          automaticamente a tutti i piani attivi: puoi rimuoverli qui sotto se
+          non li vuoi in questo specifico piano.
+        </p>
+        <div className="mt-6">
+          <PlanContentsPicker planId={plan.id} />
+        </div>
       </div>
     </section>
   );

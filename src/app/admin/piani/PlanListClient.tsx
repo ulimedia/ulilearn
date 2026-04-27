@@ -35,7 +35,7 @@ export function PlanListClient() {
             <th className="px-4 py-3 text-left">Nome</th>
             <th className="px-4 py-3 text-left">Prezzo</th>
             <th className="px-4 py-3 text-left">Intervallo</th>
-            <th className="px-4 py-3 text-left">Sconto Plus</th>
+            <th className="px-4 py-3 text-left">Contenuti</th>
             <th className="px-4 py-3 text-left">Stripe</th>
             <th className="px-4 py-3 text-left">Stato</th>
             <th className="px-4 py-3 text-left">Aggiornato</th>
@@ -70,7 +70,9 @@ export function PlanListClient() {
               </td>
               <td className="px-4 py-3">{formatCurrencyEUR(p.priceCents)}</td>
               <td className="px-4 py-3">{INTERVAL_LABEL[p.billingInterval]}</td>
-              <td className="px-4 py-3">{p.subscriberDiscountPercent}%</td>
+              <td className="px-4 py-3 text-paper-300">
+                {p._count?.contents ?? 0}
+              </td>
               <td className="px-4 py-3 text-xs">
                 {p.stripePriceId ? (
                   <span className="text-paper-300" title={p.stripePriceId}>

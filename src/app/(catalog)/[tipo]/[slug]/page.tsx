@@ -59,7 +59,7 @@ export default async function ContentDetailPage({
   });
   if (!data?.item) notFound();
 
-  const { item, related } = data;
+  const { item, related, inActivePlan } = data;
   const isLive = item.format !== "on_demand";
   const isUpcoming = item.liveStartAt
     ? new Date(item.liveStartAt).getTime() > Date.now()
@@ -134,6 +134,7 @@ export default async function ContentDetailPage({
         isSoldOut={isSoldOut}
         watchHref={watchHref}
         buyHref={buyHref}
+        inActivePlan={inActivePlan}
       />
 
       {item.descriptionMd && (
@@ -209,12 +210,14 @@ function CtaBlock({
   isSoldOut,
   watchHref,
   buyHref,
+  inActivePlan,
 }: {
   item: { type: ContentType; isPurchasable: boolean; isFree: boolean; standalonePriceCents: number | null };
   isUpcoming: boolean;
   isSoldOut: boolean;
   watchHref: string;
   buyHref: string;
+  inActivePlan: boolean;
 }) {
   if (item.isPurchasable) {
     return (
@@ -226,7 +229,7 @@ function CtaBlock({
               : "—"}
           </p>
           <p className="mt-1 text-xs text-paper-400">
-            Sconto fisso per gli abbonati Plus
+            Sconto dedicato per gli abbonati Plus
           </p>
         </div>
         <div className="ml-auto flex flex-wrap gap-3">
@@ -249,27 +252,68 @@ function CtaBlock({
       </div>
     );
   }
+
+  if (item.isFree) {
+    return (
+      <div className="mt-8 flex flex-wrap items-center gap-4 border-y border-paper-300/15 py-6">
+        <div>
+          <p className="font-display text-2xl">Contenuto gratuito</p>
+          <p className="mt-1 text-sm text-paper-400">
+            Accessibile a tutti, senza abbonamento.
+          </p>
+        </div>
+        <div className="ml-auto flex flex-wrap gap-3">
+          <Link href={watchHref} className={cn(buttonVariants({ size: "lg" }))}>
+            {isUpcoming ? "Iscriviti alla diretta" : "Guarda ora"}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (inActivePlan) {
+    return (
+      <div className="mt-8 flex flex-wrap items-center gap-4 border-y border-paper-300/15 py-6">
+        <div>
+          <p className="font-display text-2xl">Incluso in Ulilearn Plus</p>
+          <p className="mt-1 text-sm text-paper-400">
+            {isUpcoming
+              ? "L'evento sarà disponibile on-demand dopo la diretta."
+              : "Accesso illimitato per gli abbonati."}
+          </p>
+        </div>
+        <div className="ml-auto flex flex-wrap gap-3">
+          <Link href={watchHref} className={cn(buttonVariants({ size: "lg" }))}>
+            {isUpcoming ? "Iscriviti alla diretta" : "Guarda ora"}
+          </Link>
+          <Link
+            href={ROUTES.subscribe}
+            className={cn(buttonVariants({ variant: "secondary", size: "lg" }))}
+          >
+            Scopri Plus
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Pubblicato ma non incluso in nessun piano e non purchasable: stato di
+  // configurazione incompleta. Mostriamo un fallback chiaro.
   return (
     <div className="mt-8 flex flex-wrap items-center gap-4 border-y border-paper-300/15 py-6">
       <div>
-        <p className="font-display text-2xl">Incluso in Ulilearn Plus</p>
+        <p className="font-display text-2xl">Non disponibile</p>
         <p className="mt-1 text-sm text-paper-400">
-          {isUpcoming
-            ? "L'evento sarà disponibile on-demand dopo la diretta."
-            : item.isFree
-              ? "Contenuto gratuito, accessibile a tutti."
-              : "Accesso illimitato per gli abbonati."}
+          Questo contenuto al momento non è incluso in nessun abbonamento né
+          in vendita singola.
         </p>
       </div>
       <div className="ml-auto flex flex-wrap gap-3">
-        <Link href={watchHref} className={cn(buttonVariants({ size: "lg" }))}>
-          {isUpcoming ? "Iscriviti alla diretta" : "Guarda ora"}
-        </Link>
         <Link
           href={ROUTES.subscribe}
           className={cn(buttonVariants({ variant: "secondary", size: "lg" }))}
         >
-          Scopri Plus
+          Scopri i piani
         </Link>
       </div>
     </div>

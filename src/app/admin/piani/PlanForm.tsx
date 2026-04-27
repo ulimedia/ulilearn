@@ -23,7 +23,6 @@ type PlanFormValues = {
   billingInterval: "year" | "month";
   sortOrder: number;
   isActive: boolean;
-  subscriberDiscountPercent: number;
 };
 
 export function PlanForm({ initial }: { initial?: PlanFormValues }) {
@@ -39,7 +38,6 @@ export function PlanForm({ initial }: { initial?: PlanFormValues }) {
       billingInterval: "year",
       sortOrder: 0,
       isActive: true,
-      subscriberDiscountPercent: 20,
     },
   );
 
@@ -77,7 +75,6 @@ export function PlanForm({ initial }: { initial?: PlanFormValues }) {
       billingInterval: values.billingInterval,
       sortOrder: Number.isFinite(values.sortOrder) ? values.sortOrder : 0,
       isActive: values.isActive,
-      subscriberDiscountPercent: values.subscriberDiscountPercent,
     });
   }
 
@@ -190,25 +187,6 @@ export function PlanForm({ initial }: { initial?: PlanFormValues }) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="discount">Sconto Plus su contenuti a pagamento (%)</Label>
-          <Input
-            id="discount"
-            type="number"
-            min={0}
-            max={100}
-            value={values.subscriberDiscountPercent}
-            onChange={(e) =>
-              setValues((v) => ({
-                ...v,
-                subscriberDiscountPercent: parseInt(e.target.value, 10) || 0,
-              }))
-            }
-          />
-          <p className="mt-1 text-xs text-paper-400">
-            Applicato di default a masterclass/workshop acquistabili.
-          </p>
-        </div>
         <div>
           <Label htmlFor="sort">Ordine in pagina</Label>
           <Input

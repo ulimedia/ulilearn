@@ -75,6 +75,7 @@ export const contentRouter = createTRPCRouter({
           seatsTaken: true,
           updatedAt: true,
           author: { select: { id: true, fullName: true, slug: true } },
+          _count: { select: { plans: true } },
         },
       });
       const nextCursor = items.length > input.limit ? items[input.limit]?.id : null;
@@ -145,6 +146,7 @@ export const contentRouter = createTRPCRouter({
               : null,
       };
 
+      const isCreate = !input.id;
       const row = input.id
         ? await ctx.db.contentItem.update({
             where: { id: input.id },
@@ -156,6 +158,29 @@ export const contentRouter = createTRPCRouter({
             select: { id: true, slug: true },
           });
 
+      // Auto-include newly created on-demand content into every active
+      // subscription plan. Admins can remove later from /admin/piani/[id].
+      if (
+        isCreate &&
+        (input.type === "lecture" ||
+          input.type === "corso" ||
+          input.type === "documentario")
+      ) {
+        const activePlans = await ctx.db.plan.findMany({
+          where: { isActive: true },
+          select: { id: true },
+        });
+        if (activePlans.length > 0) {
+          await ctx.db.planContent.createMany({
+            data: activePlans.map((p) => ({
+              planId: p.id,
+              contentItemId: row.id,
+            })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
       await ctx.db.auditLog.create({
         data: {
           actorUserId: ctx.user.id,
@@ -166,6 +191,67 @@ export const contentRouter = createTRPCRouter({
       });
 
       return row;
+    }),
+
+  /** Returns the plans that currently include this content (for the badge UI). */
+  getPlans: adminProcedure
+    .input(z.object({ contentItemId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db.planContent.findMany({
+        where: { contentItemId: input.contentItemId },
+        select: {
+          plan: {
+            select: { id: true, slug: true, name: true, isActive: true },
+          },
+        },
+      });
+      return rows.map((r) => r.plan);
+    }),
+
+  /** Replace the set of plans that include this content. */
+  setPlans: adminProcedure
+    .input(
+      z.object({
+        contentItemId: z.string().uuid(),
+        planIds: z.array(z.string().uuid()).max(50),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.planContent.findMany({
+        where: { contentItemId: input.contentItemId },
+        select: { planId: true },
+      });
+      const existingIds = new Set(existing.map((e) => e.planId));
+      const desiredIds = new Set(input.planIds);
+
+      const toAdd = [...desiredIds].filter((id) => !existingIds.has(id));
+      const toRemove = [...existingIds].filter((id) => !desiredIds.has(id));
+
+      await ctx.db.$transaction([
+        ...(toRemove.length > 0
+          ? [
+              ctx.db.planContent.deleteMany({
+                where: {
+                  contentItemId: input.contentItemId,
+                  planId: { in: toRemove },
+                },
+              }),
+            ]
+          : []),
+        ...(toAdd.length > 0
+          ? [
+              ctx.db.planContent.createMany({
+                data: toAdd.map((pid) => ({
+                  planId: pid,
+                  contentItemId: input.contentItemId,
+                })),
+                skipDuplicates: true,
+              }),
+            ]
+          : []),
+      ]);
+
+      return { added: toAdd.length, removed: toRemove.length };
     }),
 
   delete: adminProcedure
@@ -481,7 +567,17 @@ export const contentRouter = createTRPCRouter({
         select: PUBLIC_CONTENT_SELECT,
       });
 
-      return { item, related };
+      // Is this content included in at least one currently active subscription
+      // plan? Drives the "Incluso in Plus" CTA on the public catalog page.
+      const inActivePlanRow = await ctx.db.planContent.findFirst({
+        where: {
+          contentItemId: item.id,
+          plan: { isActive: true },
+        },
+        select: { planId: true },
+      });
+
+      return { item, related, inActivePlan: Boolean(inActivePlanRow) };
     }),
 
   publicSearch: publicProcedure

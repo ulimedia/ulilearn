@@ -6,6 +6,7 @@ import { authorRouter } from "./author";
 import { mediaRouter } from "./media";
 import { planRouter } from "./plan";
 import { subscriptionRouter } from "./subscription";
+import { settingsRouter } from "./settings";
 
 export const appRouter = createTRPCRouter({
   auth: authRouter,
@@ -15,6 +16,7 @@ export const appRouter = createTRPCRouter({
   media: mediaRouter,
   plan: planRouter,
   subscription: subscriptionRouter,
+  settings: settingsRouter,
 });
 
 export type AppRouter = typeof appRouter;

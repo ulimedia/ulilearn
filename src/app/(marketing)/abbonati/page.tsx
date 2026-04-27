@@ -72,6 +72,9 @@ export default async function SubscribePage({
                   {INTERVAL_LABEL[plan.billingInterval]}
                 </span>
               </p>
+              <p className="mt-2 text-xs uppercase tracking-wide text-paper-400">
+                {plan._count.contents} contenuti inclusi
+              </p>
               {plan.featureBullets.length > 0 && (
                 <ul className="mt-6 space-y-2 text-sm text-paper-300">
                   {plan.featureBullets.map((b, i) => (

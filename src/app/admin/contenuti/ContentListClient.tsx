@@ -81,6 +81,7 @@ export function ContentListClient() {
               <th className="px-4 py-3 text-left">Stato</th>
               <th className="px-4 py-3 text-left">Autore</th>
               <th className="px-4 py-3 text-left">Prezzo</th>
+              <th className="px-4 py-3 text-left">Piani</th>
               <th className="px-4 py-3 text-left">Aggiornato</th>
               <th className="px-4 py-3"></th>
             </tr>
@@ -88,14 +89,14 @@ export function ContentListClient() {
           <tbody>
             {query.isPending && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-paper-400">
+                <td colSpan={8} className="px-4 py-6 text-center text-paper-400">
                   Caricamento…
                 </td>
               </tr>
             )}
             {query.data?.items.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-paper-400">
+                <td colSpan={8} className="px-4 py-10 text-center text-paper-400">
                   Nessun contenuto. Inizia dal pulsante &ldquo;Nuovo contenuto&rdquo; in alto.
                 </td>
               </tr>
@@ -123,6 +124,9 @@ export function ContentListClient() {
                   {c.isPurchasable && c.standalonePriceCents != null
                     ? formatCurrencyEUR(c.standalonePriceCents)
                     : "—"}
+                </td>
+                <td className="px-4 py-3 text-xs text-paper-300">
+                  {c._count?.plans ? `In ${c._count.plans} piani` : "—"}
                 </td>
                 <td className="px-4 py-3 text-xs text-paper-400">
                   {formatDateIT(c.updatedAt)}
